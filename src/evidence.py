@@ -2,6 +2,8 @@
 Captura de pantalla completa del escritorio (pyautogui).
 Incluye la barra de tareas de Windows con la hora del sistema.
 """
+import subprocess
+import time as _time
 import pyautogui
 from pathlib import Path
 from datetime import datetime
@@ -41,3 +43,31 @@ def capturar(output_dir: Path, nombre: str, page=None) -> Path:
 
     print(f"  [evidencia] {filename.name}")
     return filename
+
+
+def capturar_explorador_archivo(output_dir: Path, archivo: Path, nombre_base: str) -> None:
+    """
+    Toma dos capturas de evidencia post-descarga:
+      1. El Explorador de Windows con el archivo seleccionado.
+      2. El cuadro de Propiedades del archivo.
+
+    Args:
+        output_dir:   Carpeta donde se guardarán las imágenes.
+        archivo:      Path al archivo descargado.
+        nombre_base:  Prefijo para los nombres de las capturas.
+    """
+    # 1. Abrir Explorer con el archivo seleccionado
+    subprocess.Popen(["explorer", "/select," + str(archivo)])
+    _time.sleep(2.5)
+    capturar(output_dir, f"{nombre_base}_carpeta_descargas")
+
+    # 2. Abrir Propiedades (Alt+Enter con el archivo ya seleccionado en Explorer)
+    pyautogui.hotkey("alt", "return")
+    _time.sleep(1.5)
+    capturar(output_dir, f"{nombre_base}_propiedades_archivo")
+
+    # Cerrar el cuadro de Propiedades y luego el Explorer
+    pyautogui.hotkey("alt", "F4")
+    _time.sleep(0.4)
+    pyautogui.hotkey("alt", "F4")
+    _time.sleep(0.3)

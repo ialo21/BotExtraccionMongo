@@ -11,7 +11,7 @@ import time
 
 import config
 from src import browser
-from src.evidence import capturar
+from src.evidence import capturar, capturar_explorador_archivo
 from src.gmail_otp import obtener_otp
 
 
@@ -88,7 +88,6 @@ def _hacer_login(page: Page, evidencias_dir: Path, logs_dir: Path) -> bool:
             inputs[i].type(digito)
 
         print("  → OTP ingresado, esperando redirección...")
-        capturar(evidencias_dir, "01b_mfa_completado", page)
 
     except Exception as e:
         if "Send Code" in str(e) or "Timeout" in type(e).__name__:
@@ -171,7 +170,6 @@ def login(page: Page, evidencias_dir: Path, logs_dir: Path, max_reintentos: int 
             exito = _hacer_login(page, evidencias_dir, logs_dir)
 
         if exito:
-            capturar(evidencias_dir, "01_login_exitoso", page)
             print("  ✓ Login completado")
             return page
 
@@ -201,21 +199,18 @@ def ir_al_cluster(page: Page, evidencias_dir: Path) -> None:
     # Seleccionar Interseguro en el dropdown
     page.click("a[aria-label='Interseguro']")
     page.wait_for_load_state("domcontentloaded")
-    capturar(evidencias_dir, "02a_org_interseguro", page)
     print("  ✓ Organización Interseguro seleccionada")
 
     # Hacer clic en el proyecto PortalSistemas
     print("  → Entrando al proyecto PortalSistemas...")
     page.click("a[href*='66ba761f5acbaa376da8f5b3']")
     page.wait_for_load_state("domcontentloaded")
-    capturar(evidencias_dir, "02b_proyecto_portalsistemas", page)
     print("  ✓ Proyecto PortalSistemas abierto")
 
     # Clic en Clusters en el menú lateral
     print("  → Navegando a Clusters...")
     page.click("[data-testid='lg-cloud_nav-side_nav-clusters']")
     page.wait_for_load_state("domcontentloaded")
-    capturar(evidencias_dir, "02c_clusters", page)
     print("  ✓ Sección Clusters abierta")
 
     # Localizar el cluster vis-data-prd y abrir su menú ...
@@ -226,14 +221,12 @@ def ir_al_cluster(page: Page, evidencias_dir: Path) -> None:
     ).first
     dropdown_btn = cluster_row.locator("[data-testid='Dropdown_toggleButton']").first
     dropdown_btn.click()
-    capturar(evidencias_dir, "02d_menu_cluster", page)
     print("  ✓ Menú del cluster abierto")
 
     # Clic en Download Logs
     print("  → Haciendo clic en Download Logs...")
     page.click("a.dropdown-component-link:has-text('Download Logs')")
     page.wait_for_load_state("domcontentloaded")
-    capturar(evidencias_dir, "02e_download_logs", page)
     print("  ✓ Sección Download Logs abierta")
 
 
@@ -365,6 +358,6 @@ def descargar_log(
     nombre = f"{tipo_log}_log_{start.strftime('%Y%m%d')}_al_{end.strftime('%Y%m%d')}.gz"
     destino = evidencias_dir / nombre
     descarga.save_as(str(destino))
-
-    capturar(evidencias_dir, f"05_descarga_completada_{tipo_log}_log", page)
     print(f"  ✓ Descarga guardada: {destino}")
+
+    capturar_explorador_archivo(evidencias_dir, destino, f"05_{tipo_log}_log")
