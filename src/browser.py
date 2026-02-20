@@ -13,6 +13,10 @@ def launch() -> Page:
     """Inicia el navegador y devuelve la página activa."""
     global _playwright, _browser
 
+    # Garantizar que el directorio de descargas existe antes de pasárselo a Playwright.
+    # DOWNLOAD_DIR ya es absoluto (resuelto en config.py), así no depende del cwd.
+    config.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
     _playwright = sync_playwright().start()
     _browser = _playwright.chromium.launch(
         headless=config.HEADLESS,

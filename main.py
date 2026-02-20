@@ -29,21 +29,21 @@ def main():
     # ── Carpetas: respeta vars del orquestador si existen ─────────────────────
     # Orquestador inyecta: EJECUCION_LOGS_DIR y EJECUCION_RESULTADOS_DIR
     import os
-    _logs_env = os.getenv("EJECUCION_LOGS_DIR")
-    _res_env  = os.getenv("EJECUCION_RESULTADOS_DIR")
+    _PROJECT_ROOT = Path(__file__).resolve().parent
+    _logs_env = (os.getenv("EJECUCION_LOGS_DIR") or "").strip()
+    _res_env  = (os.getenv("EJECUCION_RESULTADOS_DIR") or "").strip()
 
     run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    if _logs_env:
-        logs_dir = Path(_logs_env)
-    else:
-        base = Path("output") / "ejecuciones" / "robot-extraccion-mongo" / run_ts
-        logs_dir = base / "logs"
 
-    if _res_env:
-        resultados_dir = Path(_res_env)
-    else:
-        base = Path("output") / "ejecuciones" / "robot-extraccion-mongo" / run_ts
-        resultados_dir = base / "resultados"
+    def _to_abs(raw: str, default_relative: str) -> Path:
+        """Convierte a Path absoluto; si está vacío usa default anclado al proyecto."""
+        if not raw:
+            return _PROJECT_ROOT / default_relative
+        p = Path(raw)
+        return p if p.is_absolute() else _PROJECT_ROOT / p
+
+    logs_dir      = _to_abs(_logs_env, f"output/ejecuciones/robot-extraccion-mongo/{run_ts}/logs")
+    resultados_dir = _to_abs(_res_env,  f"output/ejecuciones/robot-extraccion-mongo/{run_ts}/resultados")
 
     logs_dir.mkdir(parents=True, exist_ok=True)
     resultados_dir.mkdir(parents=True, exist_ok=True)
