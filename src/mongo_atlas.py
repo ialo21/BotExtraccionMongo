@@ -8,6 +8,7 @@ from playwright.sync_api import Page
 from datetime import date
 from pathlib import Path
 import time
+import random
 
 import config
 from src import browser
@@ -15,79 +16,147 @@ from src.evidence import capturar, capturar_explorador_archivo
 from src.gmail_otp import obtener_otp
 
 
+# ── Helpers de humanización ────────────────────────────────────────────────────
+
+def _random_sleep(min_s: float = 0.8, max_s: float = 2.0) -> None:
+    """Pausa aleatoria que simula el tiempo de lectura/reflexión de un humano."""
+    time.sleep(random.uniform(min_s, max_s))
+
+
+def _human_type(page: Page, selector: str, text: str) -> None:
+    """
+    Escribe texto en un campo simulando velocidad y ritmo humano variable.
+    - Delay entre caracteres: 70–180 ms con micro-pausas ocasionales más largas.
+    - Primero hace click en el campo y espera brevemente.
+    """
+    element = page.locator(selector)
+    element.click()
+    page.wait_for_timeout(random.randint(350, 750))
+    for char in text:
+        page.keyboard.type(char)
+        delay = random.randint(70, 180)
+        # Simula micro-pausa de "pensamiento" (~8 % de probabilidad)
+        if random.random() < 0.08:
+            delay += random.randint(250, 600)
+        page.wait_for_timeout(delay)
+    # Pequeña pausa tras terminar de escribir
+    page.wait_for_timeout(random.randint(200, 500))
+
+
+def _human_click(page: Page, locator, scroll_first: bool = True) -> None:
+    """
+    Mueve el mouse en dos fases (aproximación + posicionado fino) y luego
+    hace click, imitando la aceleración/desaceleración humana.
+    """
+    if scroll_first:
+        try:
+            locator.scroll_into_view_if_needed(timeout=3000)
+            page.wait_for_timeout(random.randint(150, 400))
+        except Exception:
+            pass
+
+    box = locator.bounding_box()
+    if box:
+        # Destino final: centro con desplazamiento aleatorio pequeño
+        tx = box["x"] + box["width"] * random.uniform(0.3, 0.7)
+        ty = box["y"] + box["height"] * random.uniform(0.3, 0.7)
+
+        # Fase 1: aproximación rápida con algo de error
+        page.mouse.move(
+            box["x"] + box["width"] / 2 + random.randint(-25, 25),
+            box["y"] + box["height"] / 2 + random.randint(-15, 15),
+            steps=random.randint(8, 18),
+        )
+        page.wait_for_timeout(random.randint(60, 180))
+
+        # Fase 2: posicionado fino
+        page.mouse.move(tx, ty, steps=random.randint(3, 7))
+        page.wait_for_timeout(random.randint(40, 120))
+
+        page.mouse.click(tx, ty)
+    else:
+        locator.click()
+
+
 # ── Paso 1: Login ──────────────────────────────────────────────────────────────
 
 def _hacer_login(page: Page, evidencias_dir: Path, logs_dir: Path) -> bool:
     """
-    Intenta un ciclo completo de login. Devuelve True si el login fue exitoso.
+    Intenta un ciclo completo de login con comportamiento humanizado.
+    Devuelve True si el login fue exitoso.
     """
     page.goto(config.MONGO_ATLAS_URL)
     page.wait_for_load_state("domcontentloaded")
+    # Simular tiempo de lectura de la página
+    _random_sleep(1.2, 2.5)
 
     # Paso 1: Email
     print("  → Ingresando email...")
     page.wait_for_selector("#username", state="visible")
-    page.fill("#username", config.MONGO_USER)
-    page.click("button:has-text('Next')")
+    _random_sleep(0.5, 1.2)
+    _human_type(page, "#username", config.MONGO_USER)
+    _random_sleep(0.6, 1.5)
+
+    next_btn = page.locator("button:has-text('Next')")
+    next_btn.wait_for(state="visible")
+    _human_click(page, next_btn)
+    _random_sleep(1.0, 2.2)
 
     # Paso 2: Contraseña
     print("  → Ingresando contraseña...")
     page.wait_for_selector("#lg-passwordinput-1", state="visible")
-    page.fill("#lg-passwordinput-1", config.MONGO_PASSWORD)
+    _random_sleep(0.7, 1.4)
+    _human_type(page, "#lg-passwordinput-1", config.MONGO_PASSWORD)
+    _random_sleep(0.8, 1.8)
 
-    # Paso 3: Login — un click inicial, espera 300 ms y luego spam Playwright 20s si sigue visible
-    print("  → Click inicial en Login y spam si sigue visible...")
+    # Paso 3: Click en Login — UN solo click natural, luego espera que el botón desaparezca
+    print("  → Haciendo clic en Login...")
     login_btn = page.locator("button:has-text('Login')")
     login_btn.wait_for(state="visible")
-    login_btn.scroll_into_view_if_needed()
+    _human_click(page, login_btn)
 
-    # Click inicial
+    # Esperar que el botón desaparezca (indica que el formulario fue aceptado)
     try:
-        login_btn.click(timeout=200, no_wait_after=True)
+        login_btn.wait_for(state="hidden", timeout=12_000)
+        print("  → Formulario procesado")
     except Exception:
-        pass
-
-    page.wait_for_timeout(300)
-
-    # Si aún está visible, iniciar spam de 20s
-    try:
-        login_btn.wait_for(state="visible", timeout=10)
-        print("  → Botón sigue visible, iniciando spam Playwright (20s)...")
-        start_ts = time.monotonic()
-        while time.monotonic() - start_ts < 20:
-            try:
-                login_btn.click(timeout=50, no_wait_after=True)
-            except Exception:
-                pass
-    except Exception:
-        print("  → Botón ya no visible tras el click inicial")
-
-    # Verificación final tras el loop
-    try:
-        login_btn.wait_for(state="detached", timeout=500)
-    except Exception:
+        # Si sigue visible tras 12s, un segundo intento con pausa previa
+        _random_sleep(1.5, 3.0)
         try:
-            login_btn.wait_for(state="hidden", timeout=500)
+            login_btn.wait_for(state="visible", timeout=500)
+            print("  → Segundo intento de Login...")
+            _human_click(page, login_btn)
+            login_btn.wait_for(state="hidden", timeout=10_000)
         except Exception:
             pass
+
+    _random_sleep(1.0, 2.0)
 
     # Paso 4: MFA opcional
     print("  → Verificando si aparece pantalla de MFA...")
     try:
         page.wait_for_selector("button:has-text('Send Code')", timeout=8000)
         print("  → Pantalla MFA detectada. Enviando código...")
+        _random_sleep(0.5, 1.2)
+
+        send_btn = page.locator("button:has-text('Send Code')")
         send_ts = time.time()
-        page.click("button:has-text('Send Code')")
+        _human_click(page, send_btn)
 
         otp = obtener_otp(timeout_seg=config.OTP_TIMEOUT_SEG, after_ts=send_ts)
 
         print(f"  → Rellenando OTP: {otp}")
+        _random_sleep(0.4, 0.9)
         inputs = page.query_selector_all("[data-testid='autoAdvanceInput']")
         for i, digito in enumerate(otp):
             inputs[i].click()
+            page.wait_for_timeout(random.randint(80, 220))
             inputs[i].type(digito)
+            page.wait_for_timeout(random.randint(120, 350))
 
+        capturar(evidencias_dir, "01b_mfa_completado", page)
         print("  → OTP ingresado, esperando redirección...")
+        _random_sleep(1.0, 2.0)
 
     except Exception as e:
         if "Send Code" in str(e) or "Timeout" in type(e).__name__:
@@ -193,27 +262,24 @@ def ir_al_cluster(page: Page, evidencias_dir: Path) -> None:
     """
     print("[2/N] Cambiando a organización Interseguro...")
 
-    # Abrir selector de organización
     page.click("[data-testid='lg-cloud_nav-top_nav-resource_nav-segment-button']")
-
-    # Seleccionar Interseguro en el dropdown
     page.click("a[aria-label='Interseguro']")
     page.wait_for_load_state("domcontentloaded")
+    capturar(evidencias_dir, "02a_org_interseguro", page)
     print("  ✓ Organización Interseguro seleccionada")
 
-    # Hacer clic en el proyecto PortalSistemas
     print("  → Entrando al proyecto PortalSistemas...")
     page.click("a[href*='66ba761f5acbaa376da8f5b3']")
     page.wait_for_load_state("domcontentloaded")
+    capturar(evidencias_dir, "02b_proyecto_portalsistemas", page)
     print("  ✓ Proyecto PortalSistemas abierto")
 
-    # Clic en Clusters en el menú lateral
     print("  → Navegando a Clusters...")
     page.click("[data-testid='lg-cloud_nav-side_nav-clusters']")
     page.wait_for_load_state("domcontentloaded")
+    capturar(evidencias_dir, "02c_clusters", page)
     print("  ✓ Sección Clusters abierta")
 
-    # Localizar el cluster vis-data-prd y abrir su menú ...
     print("  → Localizando cluster vis-data-prd...")
     cluster_row = page.locator(
         "css=[data-testid='cluster-name-detail-link'][href*='vis-data-prd']"
@@ -221,12 +287,13 @@ def ir_al_cluster(page: Page, evidencias_dir: Path) -> None:
     ).first
     dropdown_btn = cluster_row.locator("[data-testid='Dropdown_toggleButton']").first
     dropdown_btn.click()
+    capturar(evidencias_dir, "02d_menu_cluster", page)
     print("  ✓ Menú del cluster abierto")
 
-    # Clic en Download Logs
     print("  → Haciendo clic en Download Logs...")
     page.click("a.dropdown-component-link:has-text('Download Logs')")
     page.wait_for_load_state("domcontentloaded")
+    capturar(evidencias_dir, "02e_download_logs", page)
     print("  ✓ Sección Download Logs abierta")
 
 
@@ -270,7 +337,6 @@ def _set_date_input(page: Page, selector: str, valor: str) -> None:
     inp.type(valor)
     page.wait_for_timeout(200)
 
-    # Verificar si el valor quedó establecido
     actual = inp.input_value()
     if not actual:
         page.evaluate(
@@ -288,7 +354,6 @@ def _set_date_input(page: Page, selector: str, valor: str) -> None:
         )
         page.wait_for_timeout(100)
 
-    # Confirmar sin Tab (Tab borra el valor en este datepicker)
     page.keyboard.press("Escape")
     page.wait_for_timeout(100)
 
@@ -354,10 +419,12 @@ def descargar_log(
     with page.expect_download() as dl_info:
         page.click("button[data-testid='download-logs-modal']")
 
+    capturar(evidencias_dir, f"05_descarga_iniciada_{tipo_log}_log", page)
+
     descarga = dl_info.value
     nombre = f"{tipo_log}_log_{start.strftime('%Y%m%d')}_al_{end.strftime('%Y%m%d')}.gz"
     destino = evidencias_dir / nombre
     descarga.save_as(str(destino))
     print(f"  ✓ Descarga guardada: {destino}")
 
-    capturar_explorador_archivo(evidencias_dir, destino, f"05_{tipo_log}_log")
+    capturar_explorador_archivo(evidencias_dir, destino, f"06_{tipo_log}_log")
