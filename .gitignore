@@ -1,0 +1,10 @@
+.env
+AuthParaScriptingIago.json
+token.json
+__pycache__/
+logs/
+output/
+*.log
+*.gz
+*.zip
+*.bak
