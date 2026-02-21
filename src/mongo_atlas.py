@@ -115,18 +115,17 @@ def _hacer_login(page: Page, evidencias_dir: Path, logs_dir: Path) -> bool:
     login_btn.wait_for(state="visible")
     _human_click(page, login_btn)
 
-    # Esperar que el botón desaparezca (indica que el formulario fue aceptado)
     try:
         login_btn.wait_for(state="hidden", timeout=12_000)
         print("  → Formulario procesado")
     except Exception:
-        # Si sigue visible tras 12s, un segundo intento con pausa previa
         _random_sleep(1.5, 3.0)
         try:
-            login_btn.wait_for(state="visible", timeout=500)
-            print("  → Segundo intento de Login...")
-            _human_click(page, login_btn)
-            login_btn.wait_for(state="hidden", timeout=10_000)
+            login_btn = page.locator("button:has-text('Login')")
+            if login_btn.count() > 0:
+                print("  → Segundo intento de Login...")
+                _human_click(page, login_btn)
+                login_btn.wait_for(state="hidden", timeout=10_000)
         except Exception:
             pass
 

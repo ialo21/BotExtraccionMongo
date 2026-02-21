@@ -114,11 +114,21 @@ def launch() -> Page:
     config.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
     _playwright = sync_playwright().start()
-    _browser = _playwright.chromium.launch(
+
+    launch_options = dict(
         headless=config.HEADLESS,
         downloads_path=str(config.DOWNLOAD_DIR),
         args=_ANTI_BOT_ARGS,
     )
+    if config.USE_CHROME_REAL:
+        try:
+            _browser = _playwright.chromium.launch(channel="chrome", **launch_options)
+            print("  [browser] Usando Chrome instalado (menos detectable que Chromium).")
+        except Exception:
+            _browser = _playwright.chromium.launch(**launch_options)
+            print("  [browser] Chrome no encontrado, usando Chromium.")
+    else:
+        _browser = _playwright.chromium.launch(**launch_options)
 
     user_agent = random.choice(_USER_AGENTS)
     print(f"  [browser] User-Agent: {user_agent[:60]}...")

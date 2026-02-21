@@ -40,8 +40,9 @@ CLUSTER_NAME: str = os.getenv("CLUSTER_NAME", "")
 PAGE_TIMEOUT: int = int(os.getenv("PAGE_TIMEOUT", "60")) * 1000  # Playwright usa ms
 HEADLESS: bool = os.getenv("HEADLESS", "False").lower() == "true"
 USE_GOOGLE_LOGIN: bool = os.getenv("USE_GOOGLE_LOGIN", "False").lower() == "true"
+# Usar Chrome instalado en el sistema (menos detectable que Chromium). Si no está, se usa Chromium.
+USE_CHROME_REAL: bool = os.getenv("USE_CHROME_REAL", "True").lower() == "true"
 # CHROME_PROFILE_DIR solo es relevante cuando USE_GOOGLE_LOGIN=True.
-# Sin valor en .env no se define un default con ruta de otra máquina.
 _chrome_profile_raw = os.getenv("CHROME_PROFILE_DIR", "").strip()
 CHROME_PROFILE_DIR: Path | None = Path(_chrome_profile_raw) if _chrome_profile_raw else None
 CHROME_PROFILE_SUBDIR: str = os.getenv("CHROME_PROFILE_SUBDIR", "Default")
