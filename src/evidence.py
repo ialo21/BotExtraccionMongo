@@ -138,8 +138,13 @@ def capturar_explorador_archivo(output_dir: Path, archivo: Path, nombre_base: st
     _time.sleep(4.0)
     capturar(output_dir, f"{nombre_base}_propiedades_archivo")
 
-    # Cerrar Propiedades y luego Explorer
-    pyautogui.hotkey("alt", "F4")
+    # Cerrar el diálogo de Propiedades (buscar por clase "#32770" = diálogo Win32)
+    hwnd_props = _user32.FindWindowW("#32770", None)
+    if hwnd_props:
+        _user32.PostMessageW(hwnd_props, 0x0010, 0, 0)  # WM_CLOSE
     _time.sleep(0.5)
-    pyautogui.hotkey("alt", "F4")
+
+    # Cerrar la ventana del Explorador por HWND encontrado antes
+    if hwnd:
+        _user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
     _time.sleep(0.3)
