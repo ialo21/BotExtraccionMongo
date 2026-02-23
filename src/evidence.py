@@ -47,38 +47,60 @@ def capturar(output_dir: Path, nombre: str, page=None) -> Path:
 
 
 _user32 = ctypes.windll.user32
-_shell32 = ctypes.windll.shell32
+_kernel32 = ctypes.windll.kernel32
+
+# Tipo callback requerido por EnumWindows
+_WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_size_t, ctypes.c_size_t)
 
 
-def _hwnd_explorador() -> int:
-    """Devuelve el HWND de la ventana del Explorador de Windows abierta (clase CabinetWClass)."""
-    hwnd = _user32.FindWindowW("CabinetWClass", None)
-    return hwnd or 0
-
-
-def _activar_ventana(hwnd: int) -> None:
-    """Restaura y trae al frente la ventana indicada."""
-    if hwnd:
-        _user32.ShowWindow(hwnd, 9)   # SW_RESTORE
-        _user32.SetForegroundWindow(hwnd)
-
-
-def _abrir_propiedades(archivo: Path, hwnd_padre: int) -> None:
+def _hwnd_explorador_carpeta(carpeta: Path) -> int:
     """
-    Abre el diálogo de Propiedades del archivo via ShellExecuteW con el HWND
-    del Explorador como ventana padre, garantizando que aparezca en primer plano.
+    Busca la ventana del Explorador de Windows que muestra la carpeta dada
+    comparando el nombre de carpeta contra el título de cada ventana CabinetWClass.
+    Si no encuentra ninguna coincidencia devuelve la primera CabinetWClass disponible.
     """
-    try:
-        _shell32.ShellExecuteW(
-            hwnd_padre,          # padre → el diálogo aparece encima del Explorer
-            "properties",        # verb
-            str(archivo),        # archivo
-            None,                # parámetros
-            str(archivo.parent), # directorio
-            1,                   # SW_SHOWNORMAL
-        )
-    except Exception:
-        pass
+    nombre = carpeta.name.lower()
+    resultado = [0]
+
+    def _cb(hwnd, _):
+        if not _user32.IsWindowVisible(hwnd):
+            return True
+        cls = ctypes.create_unicode_buffer(64)
+        _user32.GetClassNameW(hwnd, cls, 64)
+        if cls.value not in ("CabinetWClass", "ExploreWClass"):
+            return True
+        titulo = ctypes.create_unicode_buffer(512)
+        _user32.GetWindowTextW(hwnd, titulo, 512)
+        if nombre in titulo.value.lower():
+            resultado[0] = hwnd
+            return False  # detener enumeración
+        return True
+
+    cb = _WNDENUMPROC(_cb)
+    _user32.EnumWindows(cb, 0)
+
+    if not resultado[0]:
+        resultado[0] = _user32.FindWindowW("CabinetWClass", None) or 0
+    return resultado[0]
+
+
+def _forzar_foco(hwnd: int) -> None:
+    """
+    Fuerza el foco al HWND dado aunque el proceso Python no sea el proceso en
+    primer plano. Usa AttachThreadInput para obtener permiso de SetForegroundWindow.
+    """
+    if not hwnd:
+        return
+    tid_actual = _kernel32.GetCurrentThreadId()
+    tid_destino = _user32.GetWindowThreadProcessId(hwnd, None)
+    adjuntado = False
+    if tid_actual != tid_destino:
+        adjuntado = bool(_user32.AttachThreadInput(tid_actual, tid_destino, True))
+    _user32.ShowWindow(hwnd, 9)          # SW_RESTORE
+    _user32.BringWindowToTop(hwnd)
+    _user32.SetForegroundWindow(hwnd)
+    if adjuntado:
+        _user32.AttachThreadInput(tid_actual, tid_destino, False)
 
 
 def capturar_explorador_archivo(output_dir: Path, archivo: Path, nombre_base: str) -> None:
@@ -96,14 +118,15 @@ def capturar_explorador_archivo(output_dir: Path, archivo: Path, nombre_base: st
     subprocess.Popen(["explorer", f"/select,{archivo}"])
     _time.sleep(3.0)
 
-    # Traer Explorer al frente y capturar
-    hwnd = _hwnd_explorador()
-    _activar_ventana(hwnd)
+    # Encontrar la ventana del Explorador por nombre de carpeta y forzar foco
+    hwnd = _hwnd_explorador_carpeta(archivo.parent)
+    _forzar_foco(hwnd)
     _time.sleep(0.8)
     capturar(output_dir, f"{nombre_base}_carpeta_descargas")
 
-    # 2. Abrir Propiedades con Explorer como padre (aparece encima de Chrome)
-    _abrir_propiedades(archivo, hwnd)
+    # 2. Explorer ya tiene el foco y el archivo está seleccionado (/select).
+    #    Alt+Enter abre Propiedades como ventana hija de Explorer (aparece encima).
+    pyautogui.hotkey("alt", "return")
     _time.sleep(2.5)
     capturar(output_dir, f"{nombre_base}_propiedades_archivo")
 

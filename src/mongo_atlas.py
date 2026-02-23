@@ -487,7 +487,7 @@ def descargar_log(
         page.click("button[data-testid='download-logs-modal']")
 
     descarga = dl_info.value
-    nombre = f"{tipo_log}_log_{start.strftime('%Y%m%d')}_al_{end.strftime('%Y%m%d')}.gz"
+    nombre = descarga.suggested_filename   # nombre original del servidor
     destino = evidencias_dir / nombre
     descarga.save_as(str(destino))
     print(f"  ✓ Descarga guardada: {destino}")
