@@ -9,6 +9,14 @@ import pyautogui
 from pathlib import Path
 from datetime import datetime
 
+# Deshabilitar el fail-safe de pyautogui (lanza excepción si el mouse está
+# en una esquina). En un robot automatizado el mouse puede estar en cualquier
+# posición sin que sea una señal de emergencia.
+pyautogui.FAILSAFE = False
+
+# Evitar pausa de 0.1s entre cada llamada de pyautogui (innecesaria aquí).
+pyautogui.PAUSE = 0
+
 
 def capturar(output_dir: Path, nombre: str, page=None) -> Path:
     """
