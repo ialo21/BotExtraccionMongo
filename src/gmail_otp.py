@@ -63,24 +63,37 @@ def obtener_otp(timeout_seg: int = 60, intervalo_seg: int = 5, after_ts: float |
     Raises:
         TimeoutError: si no llega el correo en el tiempo indicado.
     """
+    import datetime as _dt
+
     service = _get_service()
     print(f"  → Esperando OTP en correo (hasta {timeout_seg}s)...")
+    if after_ts:
+        ts_legible = _dt.datetime.fromtimestamp(after_ts).strftime("%H:%M:%S")
+        print(f"  → Solo se aceptan correos llegados después de: {ts_legible}")
 
     # Evita agarrar códigos antiguos: espera mínimo 5s y filtra por timestamp
+    print("  → [gmail] Esperando 5s para que el correo tenga tiempo de llegar...")
     time.sleep(5)
     after_clause = f" after:{int(after_ts)}" if after_ts else ""
+    query = f"from:{_SENDER} subject:\"MongoDB verification code\" newer_than:2m{after_clause}"
+    print(f"  → [gmail] Query de búsqueda: {query!r}")
+
     deadline = time.time() + timeout_seg
+    intento = 0
     while time.time() < deadline:
+        intento += 1
+        restante = max(0, deadline - time.time())
+        print(f"  → [gmail] Intento #{intento} (faltan {restante:.0f}s)...")
+
         results = service.users().messages().list(
             userId="me",
-            q=(
-                f"from:{_SENDER} subject:\"MongoDB verification code\" newer_than:2m"
-                f"{after_clause}"
-            ),
+            q=query,
             maxResults=5,
         ).execute()
 
         messages = results.get("messages", [])
+        print(f"  → [gmail] Mensajes encontrados: {len(messages)}")
+
         for msg in messages:
             # Evita códigos antiguos: revisa timestamp del mensaje
             if after_ts:
@@ -88,17 +101,26 @@ def obtener_otp(timeout_seg: int = 60, intervalo_seg: int = 5, after_ts: float |
                     userId="me", id=msg["id"], format="metadata"
                 ).execute()
                 internal_date_ms = int(msg_meta.get("internalDate", "0"))
+                msg_ts_legible = _dt.datetime.fromtimestamp(internal_date_ms / 1000).strftime("%H:%M:%S")
+                umbral_legible = _dt.datetime.fromtimestamp(after_ts).strftime("%H:%M:%S")
                 if internal_date_ms < int(after_ts * 1000):
+                    print(f"  → [gmail] Mensaje {msg['id']} ignorado (llegó {msg_ts_legible}, umbral {umbral_legible})")
                     continue
+                print(f"  → [gmail] Mensaje {msg['id']} válido (llegó {msg_ts_legible})")
 
             otp = _extract_otp_from_message(service, msg["id"])
             if otp:
                 print(f"  → OTP obtenido: {otp}")
                 return otp
+            else:
+                print(f"  → [gmail] Mensaje {msg['id']} no contenía OTP de 6 dígitos")
 
-        # Si no hubo match, espera 5s adicionales y sigue
-        time.sleep(max(intervalo_seg, 5))
+        # Si no hubo match, espera y sigue
+        espera = max(intervalo_seg, 5)
+        print(f"  → [gmail] Sin OTP aún. Reintentando en {espera}s...")
+        time.sleep(espera)
 
     raise TimeoutError(
-        f"No se recibió el correo de OTP de MongoDB en {timeout_seg} segundos."
+        f"No se recibió el correo de OTP de MongoDB en {timeout_seg} segundos "
+        f"(intentos realizados: {intento})."
     )

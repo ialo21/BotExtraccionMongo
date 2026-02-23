@@ -207,20 +207,30 @@ def _hacer_login(page: Page, evidencias_dir: Path, logs_dir: Path) -> bool:
 
     # Paso 5: MFA opcional
     print("  → Verificando si aparece pantalla de MFA...")
+    mfa_detectado = False
     try:
         page.wait_for_selector("button:has-text('Send Code')", timeout=8000)
+        mfa_detectado = True
+    except Exception:
+        print("  → Sin pantalla MFA, continuando...")
+
+    if mfa_detectado:
         print("  → Pantalla MFA detectada. Enviando código...")
         _random_sleep(0.3, 0.6)
 
         send_btn = page.locator("button:has-text('Send Code')")
         send_ts = time.time()
         _human_click(page, send_btn)
+        print(f"  → Código solicitado. Timestamp de envío: {send_ts:.3f}")
 
+        # Cualquier excepción aquí (incluido TimeoutError del correo) es un
+        # error real dentro del flujo MFA — NO debe silenciarse.
         otp = obtener_otp(timeout_seg=config.OTP_TIMEOUT_SEG, after_ts=send_ts)
 
         print(f"  → Rellenando OTP: {otp}")
         _random_sleep(0.4, 0.9)
         inputs = page.query_selector_all("[data-testid='autoAdvanceInput']")
+        print(f"  → Inputs OTP encontrados: {len(inputs)}")
         for i, digito in enumerate(otp):
             inputs[i].click()
             page.wait_for_timeout(random.randint(80, 220))
@@ -229,12 +239,6 @@ def _hacer_login(page: Page, evidencias_dir: Path, logs_dir: Path) -> bool:
 
         print("  → OTP ingresado, esperando redirección...")
         _random_sleep(1.0, 2.0)
-
-    except Exception as e:
-        if "Send Code" in str(e) or "Timeout" in type(e).__name__:
-            print("  → Sin pantalla MFA, continuando...")
-        else:
-            raise
 
     # Paso 6: Validar login buscando el botón de organización en el nav
     print("  → Validando login exitoso...")
