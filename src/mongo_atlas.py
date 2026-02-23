@@ -12,6 +12,7 @@ import random
 
 import config
 from src import browser
+from src.anticaptcha import resolver_recaptcha_v3
 from src.evidence import capturar, capturar_explorador_archivo
 from src.gmail_otp import obtener_otp
 
@@ -25,54 +26,36 @@ def _random_sleep(min_s: float = 0.8, max_s: float = 2.0) -> None:
 
 def _human_type(page: Page, selector: str, text: str) -> None:
     """
-    Escribe texto en un campo simulando velocidad y ritmo humano variable.
-    - Delay entre caracteres: 70–180 ms con micro-pausas ocasionales más largas.
-    - Primero hace click en el campo y espera brevemente.
+    Escribe texto en un campo con velocidad de escritura rápida pero natural.
+    Anti-Captcha maneja la validación de bot, así que no se necesitan delays largos.
     """
     element = page.locator(selector)
     element.click()
-    page.wait_for_timeout(random.randint(350, 750))
+    page.wait_for_timeout(random.randint(100, 200))
     for char in text:
         page.keyboard.type(char)
-        delay = random.randint(70, 180)
-        # Simula micro-pausa de "pensamiento" (~8 % de probabilidad)
-        if random.random() < 0.08:
-            delay += random.randint(250, 600)
-        page.wait_for_timeout(delay)
-    # Pequeña pausa tras terminar de escribir
-    page.wait_for_timeout(random.randint(200, 500))
+        page.wait_for_timeout(random.randint(20, 50))
+    page.wait_for_timeout(random.randint(50, 100))
 
 
 def _human_click(page: Page, locator, scroll_first: bool = True) -> None:
     """
-    Mueve el mouse en dos fases (aproximación + posicionado fino) y luego
-    hace click, imitando la aceleración/desaceleración humana.
+    Mueve el mouse hacia el elemento y hace click con un leve desplazamiento
+    aleatorio para no aterrizar siempre en el centro exacto.
     """
     if scroll_first:
         try:
             locator.scroll_into_view_if_needed(timeout=3000)
-            page.wait_for_timeout(random.randint(150, 400))
+            page.wait_for_timeout(random.randint(60, 150))
         except Exception:
             pass
 
     box = locator.bounding_box()
     if box:
-        # Destino final: centro con desplazamiento aleatorio pequeño
         tx = box["x"] + box["width"] * random.uniform(0.3, 0.7)
         ty = box["y"] + box["height"] * random.uniform(0.3, 0.7)
-
-        # Fase 1: aproximación rápida con algo de error
-        page.mouse.move(
-            box["x"] + box["width"] / 2 + random.randint(-25, 25),
-            box["y"] + box["height"] / 2 + random.randint(-15, 15),
-            steps=random.randint(8, 18),
-        )
-        page.wait_for_timeout(random.randint(60, 180))
-
-        # Fase 2: posicionado fino
-        page.mouse.move(tx, ty, steps=random.randint(3, 7))
-        page.wait_for_timeout(random.randint(40, 120))
-
+        page.mouse.move(tx, ty, steps=random.randint(4, 8))
+        page.wait_for_timeout(random.randint(20, 60))
         page.mouse.click(tx, ty)
     else:
         locator.click()
@@ -87,56 +70,80 @@ def _hacer_login(page: Page, evidencias_dir: Path, logs_dir: Path) -> bool:
     """
     page.goto(config.MONGO_ATLAS_URL)
     page.wait_for_load_state("domcontentloaded")
-    # Simular tiempo de lectura de la página
-    _random_sleep(1.2, 2.5)
+    _random_sleep(0.3, 0.6)
 
     # Paso 1: Email
     print("  → Ingresando email...")
     page.wait_for_selector("#username", state="visible")
-    _random_sleep(0.5, 1.2)
+    _random_sleep(0.2, 0.4)
     _human_type(page, "#username", config.MONGO_USER)
-    _random_sleep(0.6, 1.5)
+    _random_sleep(0.2, 0.4)
 
     next_btn = page.locator("button:has-text('Next')")
     next_btn.wait_for(state="visible")
     _human_click(page, next_btn)
-    _random_sleep(1.0, 2.2)
+    _random_sleep(0.8, 1.5)
 
     # Paso 2: Contraseña
     print("  → Ingresando contraseña...")
     page.wait_for_selector("#lg-passwordinput-1", state="visible")
-    _random_sleep(0.7, 1.4)
+    _random_sleep(0.2, 0.4)
     _human_type(page, "#lg-passwordinput-1", config.MONGO_PASSWORD)
-    _random_sleep(0.8, 1.8)
+    _random_sleep(0.2, 0.4)
 
-    # Paso 3: Click en Login — UN solo click natural, luego espera que el botón desaparezca
+    # Paso 3: Resolver reCAPTCHA Enterprise antes de enviar el formulario
+    print("  → Resolviendo reCAPTCHA Enterprise v3 (Anti-Captcha)...")
+    captcha_token = resolver_recaptcha_v3(
+        page_url=config.MONGO_ATLAS_URL,
+        site_key=config.RECAPTCHA_SITE_KEY,
+        action="login",
+    )
+    print("  → Token obtenido, inyectando en el formulario...")
+    page.evaluate(
+        """(token) => {
+            // Sobreescribir grecaptcha.enterprise.execute para que devuelva nuestro
+            // token en lugar del que generaría con puntuación de bot al hacer submit
+            if (window.grecaptcha) {
+                if (window.grecaptcha.enterprise) {
+                    window.grecaptcha.enterprise.execute = () => Promise.resolve(token);
+                    window.grecaptcha.enterprise.ready = (cb) => { cb(); };
+                }
+                window.grecaptcha.execute = () => Promise.resolve(token);
+                window.grecaptcha.ready = (cb) => { cb(); };
+            }
+            // Inyectar en los campos del DOM que MongoDB lee al enviar el formulario
+            document.querySelectorAll('[name="g-recaptcha-response"]').forEach(
+                el => { el.value = token; }
+            );
+            const tokenInput = document.querySelector('#recaptcha-token');
+            if (tokenInput) { tokenInput.value = token; }
+        }""",
+        captcha_token,
+    )
+    _random_sleep(0.2, 0.4)
+
+    # Paso 4: Click en Login — UN solo click natural, luego espera que el botón desaparezca
     print("  → Haciendo clic en Login...")
     login_btn = page.locator("button:has-text('Login')")
     login_btn.wait_for(state="visible")
     _human_click(page, login_btn)
 
     try:
-        login_btn.wait_for(state="hidden", timeout=12_000)
+        # 15s es suficiente: si el submit fue aceptado el botón desaparece rápido;
+        # si hay Internal Server Error el botón nunca desaparece y no vale la pena esperar más.
+        login_btn.wait_for(state="hidden", timeout=15_000)
         print("  → Formulario procesado")
     except Exception:
-        _random_sleep(1.5, 3.0)
-        try:
-            login_btn = page.locator("button:has-text('Login')")
-            if login_btn.count() > 0:
-                print("  → Segundo intento de Login...")
-                _human_click(page, login_btn)
-                login_btn.wait_for(state="hidden", timeout=10_000)
-        except Exception:
-            pass
+        print("  → Botón Login aún visible, continuando de todas formas...")
 
-    _random_sleep(1.0, 2.0)
+    _random_sleep(0.4, 0.8)
 
-    # Paso 4: MFA opcional
+    # Paso 5: MFA opcional
     print("  → Verificando si aparece pantalla de MFA...")
     try:
         page.wait_for_selector("button:has-text('Send Code')", timeout=8000)
         print("  → Pantalla MFA detectada. Enviando código...")
-        _random_sleep(0.5, 1.2)
+        _random_sleep(0.3, 0.6)
 
         send_btn = page.locator("button:has-text('Send Code')")
         send_ts = time.time()
@@ -163,12 +170,12 @@ def _hacer_login(page: Page, evidencias_dir: Path, logs_dir: Path) -> bool:
         else:
             raise
 
-    # Paso 5: Validar login buscando el botón de organización en el nav
+    # Paso 6: Validar login buscando el botón de organización en el nav
     print("  → Validando login exitoso...")
     try:
         page.wait_for_selector(
             "[data-testid='lg-cloud_nav-top_nav-resource_nav-segment-button']",
-            timeout=config.PAGE_TIMEOUT,
+            timeout=15_000,
         )
         return True
     except Exception:
@@ -228,9 +235,9 @@ def login(page: Page, evidencias_dir: Path, logs_dir: Path, max_reintentos: int 
 
     for intento in range(1, max_reintentos + 1):
         if intento > 1:
-            print(f"  → Reintento {intento}/{max_reintentos} con navegador nuevo...")
-            browser.close()
-            page = browser.launch()
+            # Reutilizar el mismo navegador: ya tiene las cookies de account.mongodb.com
+            # del intento anterior, lo que evita el Internal Server Error en sesiones frías.
+            print(f"  → Reintento {intento}/{max_reintentos} (mismo navegador, cookies preservadas)...")
 
         if config.USE_GOOGLE_LOGIN:
             exito = _hacer_login_google(page, evidencias_dir, logs_dir)
@@ -418,12 +425,14 @@ def descargar_log(
     with page.expect_download() as dl_info:
         page.click("button[data-testid='download-logs-modal']")
 
-    capturar(evidencias_dir, f"05_descarga_iniciada_{tipo_log}_log", page)
-
     descarga = dl_info.value
     nombre = f"{tipo_log}_log_{start.strftime('%Y%m%d')}_al_{end.strftime('%Y%m%d')}.gz"
     destino = evidencias_dir / nombre
     descarga.save_as(str(destino))
     print(f"  ✓ Descarga guardada: {destino}")
+
+    # Captura post-descarga: el archivo ya está guardado y Chrome muestra la notificación
+    time.sleep(1.5)
+    capturar(evidencias_dir, f"05_descarga_completada_{tipo_log}_log", page)
 
     capturar_explorador_archivo(evidencias_dir, destino, f"06_{tipo_log}_log")

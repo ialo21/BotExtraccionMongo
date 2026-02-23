@@ -47,6 +47,11 @@ _chrome_profile_raw = os.getenv("CHROME_PROFILE_DIR", "").strip()
 CHROME_PROFILE_DIR: Path | None = Path(_chrome_profile_raw) if _chrome_profile_raw else None
 CHROME_PROFILE_SUBDIR: str = os.getenv("CHROME_PROFILE_SUBDIR", "Default")
 
+# ── Anti-Captcha ──────────────────────────────────────────────────────────────
+ANTICAPTCHA_API_KEY: str = os.getenv("ANTICAPTCHA_API_KEY", "")
+# Site key pública de reCAPTCHA Enterprise de MongoDB Atlas (parámetro k= del iframe)
+RECAPTCHA_SITE_KEY: str = os.getenv("RECAPTCHA_SITE_KEY", "6Lc29rwlAAAAAJptGFZvZDUg48E5BVcqa1QVxeXG")
+
 # ── Gmail / OTP ───────────────────────────────────────────────────────────────
 GMAIL_CLIENT_ID: str = os.getenv("GMAIL_CLIENT_ID", "")
 GMAIL_CLIENT_SECRET: str = os.getenv("GMAIL_CLIENT_SECRET", "")
@@ -79,6 +84,8 @@ def validate():
         missing.append("MONGO_PASSWORD")
     if not CLUSTER_NAME:
         missing.append("CLUSTER_NAME")
+    if not USE_GOOGLE_LOGIN and not ANTICAPTCHA_API_KEY:
+        missing.append("ANTICAPTCHA_API_KEY")
 
     if missing:
         raise EnvironmentError(

@@ -45,6 +45,38 @@ def capturar(output_dir: Path, nombre: str, page=None) -> Path:
     return filename
 
 
+_PS_ACTIVATE_EXPLORER = """\
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public class Win32 {
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
+}
+'@
+$procs = Get-Process -Name explorer -ErrorAction SilentlyContinue |
+         Where-Object { $_.MainWindowHandle -ne 0 } |
+         Sort-Object StartTime -Descending
+if ($procs) {
+    $h = $procs[0].MainWindowHandle
+    [Win32]::ShowWindow($h, 9)   # SW_RESTORE
+    [Win32]::SetForegroundWindow($h)
+}
+"""
+
+
+def _activar_explorador() -> None:
+    """Fuerza el foco al Explorador de Windows más reciente via PowerShell."""
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", _PS_ACTIVATE_EXPLORER],
+            capture_output=True,
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
 def capturar_explorador_archivo(output_dir: Path, archivo: Path, nombre_base: str) -> None:
     """
     Toma dos capturas de evidencia post-descarga:
@@ -57,17 +89,21 @@ def capturar_explorador_archivo(output_dir: Path, archivo: Path, nombre_base: st
         nombre_base:  Prefijo para los nombres de las capturas.
     """
     # 1. Abrir Explorer con el archivo seleccionado
-    subprocess.Popen(["explorer", "/select," + str(archivo)])
+    subprocess.Popen(["explorer", f"/select,{archivo}"])
     _time.sleep(2.5)
+
+    # Forzar foco al Explorador (el navegador Playwright puede haberlo quedado en primer plano)
+    _activar_explorador()
+    _time.sleep(0.8)
     capturar(output_dir, f"{nombre_base}_carpeta_descargas")
 
-    # 2. Abrir Propiedades (Alt+Enter con el archivo ya seleccionado en Explorer)
+    # 2. Abrir Propiedades con Explorer ya en foco (Alt+Enter sobre el archivo seleccionado)
     pyautogui.hotkey("alt", "return")
-    _time.sleep(1.5)
+    _time.sleep(2.0)
     capturar(output_dir, f"{nombre_base}_propiedades_archivo")
 
-    # Cerrar el cuadro de Propiedades y luego el Explorer
+    # Cerrar Propiedades y luego Explorer
     pyautogui.hotkey("alt", "F4")
-    _time.sleep(0.4)
+    _time.sleep(0.5)
     pyautogui.hotkey("alt", "F4")
     _time.sleep(0.3)

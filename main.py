@@ -85,14 +85,15 @@ def main():
         page = browser.launch()
 
         # ── Paso 1: Login ──────────────────────────────────────────────────────
-        # Capturas de login → resultados/
-        page = atlas.login(page, resultados_dir, logs_dir)
+        # Capturas de login → logs/ (no son evidencia final del proceso)
+        page = atlas.login(page, logs_dir, logs_dir)
 
         # ── Paso 2: Navegar al cluster ─────────────────────────────────────────
-        atlas.ir_al_cluster(page, resultados_dir)
+        # Capturas de navegación → logs/
+        atlas.ir_al_cluster(page, logs_dir)
 
         # ── Paso 3: Ir a la sección de logs ───────────────────────────────────
-        atlas.ir_a_logs(page, resultados_dir)
+        atlas.ir_a_logs(page, logs_dir)
 
         # ── Paso 4: Descargar Audit Log → resultados/ ─────────────────────────
         atlas.descargar_log(page, resultados_dir, tipo_log="audit", start=start, end=end)
