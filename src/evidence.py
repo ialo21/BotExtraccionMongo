@@ -124,10 +124,11 @@ def capturar_explorador_archivo(output_dir: Path, archivo: Path, nombre_base: st
     _time.sleep(0.8)
     capturar(output_dir, f"{nombre_base}_carpeta_descargas")
 
-    # 2. Explorer ya tiene el foco y el archivo está seleccionado (/select).
-    #    Alt+Enter abre Propiedades como ventana hija de Explorer (aparece encima).
-    pyautogui.hotkey("alt", "return")
-    _time.sleep(2.5)
+    # 2. Abrir Propiedades directamente via Windows Shell API.
+    #    Más fiable que Alt+Enter porque no depende de que el listado tenga foco.
+    _shell32 = ctypes.windll.shell32
+    _shell32.ShellExecuteW(None, "properties", str(archivo), None, str(archivo.parent), 1)
+    _time.sleep(3.0)
     capturar(output_dir, f"{nombre_base}_propiedades_archivo")
 
     # Cerrar Propiedades y luego Explorer
