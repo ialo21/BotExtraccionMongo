@@ -14,7 +14,7 @@ import random
 import config
 from src import browser
 from src.anticaptcha import resolver_recaptcha
-from src.evidence import capturar
+from src.evidence import capturar, capturar_explorador_archivo
 from src.gmail_otp import obtener_otp
 
 
@@ -479,6 +479,8 @@ def descargar_log(
     _set_date_input(page, "input[name='endDate']", end_str)
     _set_time_input(page, ".js-end-time-container", "11:30pm")
 
+    capturar(evidencias_dir, f"04_filtro_{tipo_log}_log", page)
+
     # 4. Descargar
     print("  → Haciendo clic en Download Logs...")
     with page.expect_download() as dl_info:
@@ -489,3 +491,10 @@ def descargar_log(
     destino = evidencias_dir / nombre
     descarga.save_as(str(destino))
     print(f"  ✓ Descarga guardada: {destino}")
+
+    # Captura post-descarga con la notificación de Chrome visible
+    time.sleep(1.5)
+    capturar(evidencias_dir, f"05_descarga_completada_{tipo_log}_log", page)
+
+    # Evidencia del archivo en Explorer + propiedades
+    capturar_explorador_archivo(evidencias_dir, destino, f"06_{tipo_log}_log")
