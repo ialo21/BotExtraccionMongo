@@ -6,23 +6,33 @@ Estrategia definida en reunión (5 feb 2026):
   - Ejecución 2 (~día 1 del mes siguiente): cubre del día 16 al último día del mes anterior.
 
 La función get_date_range() detecta automáticamente qué rango corresponde
-según el día de ejecución actual.
+según el día de ejecución actual, salvo que el orquestador inyecte
+BOT_INPUT_FECHA_DESDE y BOT_INPUT_FECHA_HASTA como variables de entorno.
 """
 from datetime import date, timedelta
 import calendar
+import os
 
 
 def get_date_range() -> tuple[date, date]:
     """
-    Devuelve (fecha_inicio, fecha_fin) según el día de ejecución actual.
+    Devuelve (fecha_inicio, fecha_fin).
 
-    - Día 1: segunda quincena del mes anterior (16 → último del mes anterior)
-    - Días 2-16: primera quincena del mes en curso (1 → día anterior)
-    - Días 17-fin de mes: segunda quincena del mes en curso (16 → día anterior)
+    Si existen las variables de entorno BOT_INPUT_FECHA_DESDE y
+    BOT_INPUT_FECHA_HASTA (formato YYYY-MM-DD), las usa directamente.
+    Si no, calcula automáticamente según el día de ejecución actual.
     """
+    env_desde = os.getenv("BOT_INPUT_FECHA_DESDE", "").strip()
+    env_hasta = os.getenv("BOT_INPUT_FECHA_HASTA", "").strip()
+
+    if env_desde and env_hasta:
+        start = date.fromisoformat(env_desde)
+        end = date.fromisoformat(env_hasta)
+        print(f"  [fechas] Usando rango del orquestador: {start} → {end}")
+        return start, end
+
     today = date.today()
 
-    # Caso especial: día 1 -> segunda quincena del mes anterior
     if today.day == 1:
         prev_month = today.replace(day=1) - timedelta(days=1)
         start = prev_month.replace(day=16)
