@@ -49,7 +49,7 @@ class _RecaptchaV3Enterprise(recaptchaV3Proxyless):
         return task_result["solution"]["gRecaptchaResponse"]
 
 
-def resolver_recaptcha_v3(page_url: str, site_key: str, action: str = "login") -> str:
+def resolver_recaptcha(page_url: str, site_key: str, action: str = "login") -> str:
     """
     Resuelve un reCAPTCHA Enterprise v3 usando Anti-Captcha.
 
@@ -70,8 +70,7 @@ def resolver_recaptcha_v3(page_url: str, site_key: str, action: str = "login") -
     solver.set_website_url(page_url)
     solver.set_website_key(site_key)
     solver.set_page_action(action)
-    # 0.7 equilibra disponibilidad de workers y calidad de puntuación
-    solver.set_min_score(0.7)
+    solver.set_min_score(0.9)
 
     token = solver.solve_and_return_solution()
     if token == 0:

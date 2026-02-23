@@ -13,7 +13,7 @@ import random
 
 import config
 from src import browser
-from src.anticaptcha import resolver_recaptcha_v3
+from src.anticaptcha import resolver_recaptcha
 from src.evidence import capturar, capturar_explorador_archivo
 from src.gmail_otp import obtener_otp
 
@@ -85,31 +85,79 @@ def _hacer_login(page: Page, evidencias_dir: Path, logs_dir: Path) -> bool:
     _human_click(page, next_btn)
     _random_sleep(0.8, 1.5)
 
-    # Paso 2: Contraseña
+    # Paso 2: Contraseña — inyectar hook ANTES de escribir para que esté listo
     print("  → Ingresando contraseña...")
     page.wait_for_selector("#lg-passwordinput-1", state="visible")
+
+    # Instalar hook de intercepción INMEDIATAMENTE al cargar la pantalla de contraseña.
+    # Esto sobreescribe grecaptcha.enterprise.execute ANTES de que el formulario lo llame,
+    # y también instala un polling que re-aplica el override si reCAPTCHA se reinicializa.
+    page.evaluate("""() => {
+        window.__ANTICAPTCHA_TOKEN__ = null;
+        function patchExecute() {
+            if (window.grecaptcha && window.grecaptcha.enterprise &&
+                window.grecaptcha.enterprise.execute &&
+                !window.grecaptcha.enterprise.__patched) {
+                const _orig = window.grecaptcha.enterprise.execute.bind(window.grecaptcha.enterprise);
+                window.grecaptcha.enterprise.execute = function(siteKey, opts) {
+                    if (window.__ANTICAPTCHA_TOKEN__) {
+                        console.log('[anti-captcha] Returning injected token for action:', opts?.action);
+                        window.__CAPTCHA_ACTION__ = opts?.action || '';
+                        return Promise.resolve(window.__ANTICAPTCHA_TOKEN__);
+                    }
+                    return _orig(siteKey, opts);
+                };
+                window.grecaptcha.enterprise.__patched = true;
+            }
+        }
+        patchExecute();
+        window.__patchInterval = setInterval(patchExecute, 500);
+    }""")
+    print("  → Hook de grecaptcha.enterprise.execute instalado")
+
     _random_sleep(0.2, 0.4)
     _human_type(page, "#lg-passwordinput-1", config.MONGO_PASSWORD)
     _random_sleep(0.2, 0.4)
 
-    # Paso 3: Resolver reCAPTCHA Enterprise antes de enviar el formulario
+    # Paso 3: Capturar el action real que usa la página (si execute ya fue llamado)
+    detected_action = page.evaluate("() => window.__CAPTCHA_ACTION__ || null")
+    captcha_action = detected_action or "login"
+    print(f"  → pageAction detectado: {detected_action!r} (usando: {captcha_action!r})")
+
+    # Resolver reCAPTCHA Enterprise v3 con Anti-Captcha
     print("  → Resolviendo reCAPTCHA Enterprise v3 (Anti-Captcha)...")
-    captcha_token = resolver_recaptcha_v3(
+    captcha_token = resolver_recaptcha(
         page_url=config.MONGO_ATLAS_URL,
         site_key=config.RECAPTCHA_SITE_KEY,
-        action="login",
+        action=captcha_action,
     )
-    print("  → Token obtenido, configurando intercepción de requests...")
+    print("  → Token obtenido, inyectando...")
 
-    # Interceptar la request de login a nivel HTTP y reemplazar el token de captcha
-    # directamente en el body JSON. Esto es más fiable que manipular el DOM porque
-    # MongoDB Atlas (React) lee el token de su estado interno, no del DOM.
+    # Setear el token para que el hook de execute lo devuelva cuando Login haga submit
+    page.evaluate("(token) => { window.__ANTICAPTCHA_TOKEN__ = token; }", captcha_token)
+
+    # También inyectar en campos del DOM como fallback
+    page.evaluate("""(token) => {
+        document.querySelectorAll('[name="g-recaptcha-response"]').forEach(
+            el => { el.value = token; }
+        );
+        const tokenInput = document.querySelector('#recaptcha-token');
+        if (tokenInput) {
+            const setter = Object.getOwnPropertyDescriptor(
+                window.HTMLInputElement.prototype, 'value'
+            ).set;
+            setter.call(tokenInput, token);
+            tokenInput.dispatchEvent(new Event('input', { bubbles: true }));
+            tokenInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    }""", captcha_token)
+
+    # Interceptor de requests como última línea de defensa
     def _swap_captcha_token(route):
         request = route.request
         if request.method != "POST" or not request.post_data:
             route.continue_()
             return
-        print(f"  → [interceptor] POST detectado: {request.url[:100]}")
         try:
             body = json.loads(request.post_data)
             modified = False
@@ -119,11 +167,15 @@ def _hacer_login(page: Page, evidencias_dir: Path, logs_dir: Path) -> bool:
                     if any(t in key.lower() for t in ("captcha", "recaptcha")):
                         body[key] = captcha_token
                         modified = True
-                        print(f"  → [interceptor] Token reemplazado en campo '{key}'")
-            if not modified:
-                print(f"  → [interceptor] Campos: {list(body.keys())}")
+                        print(f"  → [interceptor] Token reemplazado en '{key}'")
             if modified:
-                route.continue_(post_data=json.dumps(body))
+                response = route.fetch(post_data=json.dumps(body))
+                print(f"  → [interceptor] Respuesta: {response.status}")
+                try:
+                    print(f"  → [interceptor] Body: {response.text()[:500]}")
+                except Exception:
+                    pass
+                route.fulfill(response=response)
                 return
         except (json.JSONDecodeError, TypeError):
             pass
@@ -132,18 +184,20 @@ def _hacer_login(page: Page, evidencias_dir: Path, logs_dir: Path) -> bool:
     page.route("https://account.mongodb.com/**", _swap_captcha_token)
 
     # Paso 4: Click en Login
+    _random_sleep(0.2, 0.4)
     print("  → Haciendo clic en Login...")
     login_btn = page.locator("button:has-text('Login')")
     login_btn.wait_for(state="visible")
     _human_click(page, login_btn)
 
     try:
-        login_btn.wait_for(state="hidden", timeout=15_000)
+        login_btn.wait_for(state="hidden", timeout=20_000)
         print("  → Formulario procesado")
     except Exception:
         print("  → Botón Login aún visible, continuando de todas formas...")
 
-    # Limpiar interceptor para no afectar navegación posterior
+    # Limpiar hook e interceptor
+    page.evaluate("() => { clearInterval(window.__patchInterval); }")
     try:
         page.unroute("https://account.mongodb.com/**", _swap_captcha_token)
     except Exception:
@@ -233,7 +287,7 @@ def _hacer_login_google(page: Page, evidencias_dir: Path, logs_dir: Path) -> boo
         return False
 
 
-def login(page: Page, evidencias_dir: Path, logs_dir: Path, max_reintentos: int = 3) -> Page:
+def login(page: Page, evidencias_dir: Path, logs_dir: Path, max_reintentos: int = 2) -> Page:
     """
     Navega a MongoDB Atlas e inicia sesión. Si el login falla, reintenta.
     
@@ -247,11 +301,7 @@ def login(page: Page, evidencias_dir: Path, logs_dir: Path, max_reintentos: int 
     print("[1/N] Accediendo a MongoDB Atlas...")
 
     for intento in range(1, max_reintentos + 1):
-        if intento == 2:
-            # Primer reintento: mismo navegador (conserva cookies de account.mongodb.com)
-            print(f"  → Reintento {intento}/{max_reintentos} (mismo navegador, cookies preservadas)...")
-        elif intento > 2:
-            # Reintentos posteriores: navegador nuevo para limpiar estado contaminado
+        if intento > 1:
             print(f"  → Reintento {intento}/{max_reintentos} con navegador nuevo...")
             browser.close()
             page = browser.launch()
