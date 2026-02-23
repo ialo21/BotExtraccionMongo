@@ -3,6 +3,7 @@ Gestión del ciclo de vida del navegador (Playwright).
 Incluye configuración anti-detección para evitar bloqueos por bot-detection.
 """
 import random
+import tempfile
 from playwright.sync_api import sync_playwright, Browser, Page
 import config
 
@@ -111,13 +112,16 @@ def launch() -> Page:
     """
     global _playwright, _browser
 
-    config.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
     _playwright = sync_playwright().start()
+
+    # Los archivos temporales de Playwright van al directorio del sistema,
+    # no a resultados/ para no contaminar la carpeta con archivos UUID.
+    # El bot usa save_as() para mover cada descarga a su destino final.
+    _tmp_downloads = tempfile.gettempdir()
 
     launch_options = dict(
         headless=config.HEADLESS,
-        downloads_path=str(config.DOWNLOAD_DIR),
+        downloads_path=_tmp_downloads,
         args=_ANTI_BOT_ARGS,
     )
     if config.USE_CHROME_REAL:

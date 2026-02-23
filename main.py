@@ -99,6 +99,7 @@ def main():
         # ── Paso 4: Descargar Audit Log → resultados/ ─────────────────────────
         atlas.descargar_log(page, resultados_dir, tipo_log="audit", start=start, end=end)
 
+        browser.close()
         print("\n✓ Proceso completado.")
 
     except NotImplementedError as e:
