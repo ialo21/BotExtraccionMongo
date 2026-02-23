@@ -48,6 +48,21 @@ def capturar(output_dir: Path, nombre: str, page=None) -> Path:
 
 _user32 = ctypes.windll.user32
 _kernel32 = ctypes.windll.kernel32
+_shell32 = ctypes.windll.shell32
+
+# LANGID: primario = low 10 bits. 9 = inglés, 10 = español.
+_LANG_SPANISH = 10
+
+
+def _verbo_propiedades() -> str:
+    """Devuelve el verbo de Shell para abrir Propiedades según el idioma de la UI de Windows."""
+    try:
+        lang = _kernel32.GetUserDefaultUILanguage()
+        if (lang & 0x3FF) == _LANG_SPANISH:
+            return "propiedades"
+    except Exception:
+        pass
+    return "properties"
 
 # Tipo callback requerido por EnumWindows
 _WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_size_t, ctypes.c_size_t)
@@ -125,9 +140,12 @@ def capturar_explorador_archivo(output_dir: Path, archivo: Path, nombre_base: st
     capturar(output_dir, f"{nombre_base}_carpeta_descargas")
 
     # 2. Abrir Propiedades directamente via Windows Shell API.
-    #    Más fiable que Alt+Enter porque no depende de que el listado tenga foco.
-    _shell32 = ctypes.windll.shell32
-    _shell32.ShellExecuteW(None, "properties", str(archivo), None, str(archivo.parent), 1)
+    #    Verbo según idioma de la UI; si falla (código <= 32), probar el otro.
+    verb = _verbo_propiedades()
+    otro = "propiedades" if verb == "properties" else "properties"
+    r = _shell32.ShellExecuteW(None, verb, str(archivo), None, str(archivo.parent), 1)
+    if r <= 32:
+        _shell32.ShellExecuteW(None, otro, str(archivo), None, str(archivo.parent), 1)
     _time.sleep(3.0)
     capturar(output_dir, f"{nombre_base}_propiedades_archivo")
 
