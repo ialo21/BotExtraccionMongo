@@ -103,48 +103,62 @@ def _forzar_foco(hwnd: int) -> None:
         _user32.AttachThreadInput(tid_actual, tid_destino, False)
 
 
-def capturar_explorador_archivo(output_dir: Path, archivo: Path, nombre_base: str) -> None:
+def _minimizar_chrome() -> int:
+    """Minimiza la ventana de Chrome y devuelve su HWND para restaurarla después."""
+    hwnd = _user32.FindWindowW("Chrome_WidgetWin_1", None)
+    if hwnd:
+        _user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE
+        _time.sleep(0.3)
+    return hwnd or 0
+
+
+def capturar_propiedades_archivo(output_dir: Path, archivo: Path, nombre_base: str) -> None:
     """
-    Toma dos capturas de evidencia post-descarga:
-      1. El Explorador de Windows con el archivo seleccionado.
-      2. El cuadro de Propiedades del archivo.
+    Abre Explorer en la carpeta de descarga con el archivo seleccionado,
+    luego abre Propiedades y captura la pantalla.
 
     Args:
-        output_dir:   Carpeta donde se guardarán las imágenes.
-        archivo:      Path al archivo descargado.
-        nombre_base:  Prefijo para los nombres de las capturas.
+        output_dir:   Carpeta donde se guardará la captura.
+        archivo:      Path al archivo (en su ruta de descarga original).
+        nombre_base:  Prefijo para el nombre de la captura.
     """
-    # 1. Abrir Explorer con el archivo seleccionado y esperar a que cargue
+    # Minimizar Chrome para que no tape Explorer ni Propiedades
+    hwnd_chrome = _minimizar_chrome()
+
+    # Abrir Explorer mostrando la carpeta de descarga con el archivo seleccionado
     subprocess.Popen(["explorer", f"/select,{archivo}"])
     _time.sleep(3.0)
 
-    # Encontrar la ventana del Explorador por nombre de carpeta y forzar foco
-    hwnd = _hwnd_explorador_carpeta(archivo.parent)
-    _forzar_foco(hwnd)
-    _time.sleep(0.8)
-    capturar(output_dir, f"{nombre_base}_carpeta_descargas")
-
-    # 2. Abrir Propiedades del archivo via PowerShell + COM Shell (idioma-agnóstico).
-    ps_cmd = (
-        f'$sh = New-Object -ComObject Shell.Application; '
-        f'$folder = $sh.NameSpace("{archivo.parent}"); '
-        f'$item = $folder.ParseName("{archivo.name}"); '
-        f'$item.InvokeVerb("properties"); '
-        f'Start-Sleep -Seconds 3'
-    )
-    subprocess.Popen(
-        ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_cmd],
-    )
-    _time.sleep(4.0)
-    capturar(output_dir, f"{nombre_base}_propiedades_archivo")
-
-    # Cerrar el diálogo de Propiedades (buscar por clase "#32770" = diálogo Win32)
-    hwnd_props = _user32.FindWindowW("#32770", None)
-    if hwnd_props:
-        _user32.PostMessageW(hwnd_props, 0x0010, 0, 0)  # WM_CLOSE
+    # Forzar foco al Explorer
+    hwnd_explorer = _hwnd_explorador_carpeta(archivo.parent)
+    _forzar_foco(hwnd_explorer)
     _time.sleep(0.5)
 
-    # Cerrar la ventana del Explorador por HWND encontrado antes
-    if hwnd:
-        _user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
+    # Alt+Enter abre Propiedades del archivo seleccionado por /select
+    pyautogui.hotkey("alt", "return")
+
+    # Esperar a que aparezca el diálogo de Propiedades y traerlo al frente
+    hwnd_props = 0
+    for _ in range(25):
+        _time.sleep(0.2)
+        hwnd_props = _user32.FindWindowW("#32770", None)
+        if hwnd_props:
+            break
+
+    if hwnd_props:
+        _forzar_foco(hwnd_props)
+        _time.sleep(0.8)
+
+    capturar(output_dir, f"{nombre_base}_propiedades_archivo")
+
+    # Cerrar Propiedades y Explorer
+    if hwnd_props:
+        _user32.PostMessageW(hwnd_props, 0x0010, 0, 0)  # WM_CLOSE
     _time.sleep(0.3)
+    if hwnd_explorer:
+        _user32.PostMessageW(hwnd_explorer, 0x0010, 0, 0)  # WM_CLOSE
+    _time.sleep(0.3)
+
+    # Restaurar Chrome
+    if hwnd_chrome:
+        _user32.ShowWindow(hwnd_chrome, 9)  # SW_RESTORE

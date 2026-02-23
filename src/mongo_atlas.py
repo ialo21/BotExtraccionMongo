@@ -7,14 +7,17 @@ de evidencia al finalizar. Se irán implementando en conjunto con el equipo.
 from playwright.sync_api import Page
 from datetime import date
 from pathlib import Path
+import ctypes
+import struct
 import json
+import shutil
 import time
 import random
 
 import config
 from src import browser
 from src.anticaptcha import resolver_recaptcha
-from src.evidence import capturar, capturar_explorador_archivo
+from src.evidence import capturar, capturar_propiedades_archivo
 from src.gmail_otp import obtener_otp
 
 
@@ -25,18 +28,9 @@ def _random_sleep(min_s: float = 0.8, max_s: float = 2.0) -> None:
     time.sleep(random.uniform(min_s, max_s))
 
 
-def _human_type(page: Page, selector: str, text: str) -> None:
-    """
-    Escribe texto en un campo con velocidad de escritura rápida pero natural.
-    Anti-Captcha maneja la validación de bot, así que no se necesitan delays largos.
-    """
-    element = page.locator(selector)
-    element.click()
-    page.wait_for_timeout(random.randint(100, 200))
-    for char in text:
-        page.keyboard.type(char)
-        page.wait_for_timeout(random.randint(20, 50))
-    page.wait_for_timeout(random.randint(50, 100))
+def _fast_fill(page: Page, selector: str, text: str) -> None:
+    """Rellena un campo instantáneamente. Anti-Captcha maneja la validación de bot."""
+    page.locator(selector).fill(text)
 
 
 def _human_click(page: Page, locator, scroll_first: bool = True) -> None:
@@ -71,19 +65,16 @@ def _hacer_login(page: Page, evidencias_dir: Path, logs_dir: Path) -> bool:
     """
     page.goto(config.MONGO_ATLAS_URL)
     page.wait_for_load_state("domcontentloaded")
-    _random_sleep(0.3, 0.6)
 
     # Paso 1: Email
     print("  → Ingresando email...")
     page.wait_for_selector("#username", state="visible")
-    _random_sleep(0.2, 0.4)
-    _human_type(page, "#username", config.MONGO_USER)
-    _random_sleep(0.2, 0.4)
+    _fast_fill(page, "#username", config.MONGO_USER)
 
     next_btn = page.locator("button:has-text('Next')")
     next_btn.wait_for(state="visible")
     _human_click(page, next_btn)
-    _random_sleep(0.8, 1.5)
+    _random_sleep(0.5, 1.0)
 
     # Paso 2: Contraseña — inyectar hook ANTES de escribir para que esté listo
     print("  → Ingresando contraseña...")
@@ -115,9 +106,7 @@ def _hacer_login(page: Page, evidencias_dir: Path, logs_dir: Path) -> bool:
     }""")
     print("  → Hook de grecaptcha.enterprise.execute instalado")
 
-    _random_sleep(0.2, 0.4)
-    _human_type(page, "#lg-passwordinput-1", config.MONGO_PASSWORD)
-    _random_sleep(0.2, 0.4)
+    _fast_fill(page, "#lg-passwordinput-1", config.MONGO_PASSWORD)
 
     # Paso 3: Capturar el action real que usa la página (si execute ya fue llamado)
     detected_action = page.evaluate("() => window.__CAPTCHA_ACTION__ || null")
@@ -216,7 +205,6 @@ def _hacer_login(page: Page, evidencias_dir: Path, logs_dir: Path) -> bool:
 
     if mfa_detectado:
         print("  → Pantalla MFA detectada. Enviando código...")
-        _random_sleep(0.3, 0.6)
 
         send_btn = page.locator("button:has-text('Send Code')")
         send_ts = time.time()
@@ -228,14 +216,12 @@ def _hacer_login(page: Page, evidencias_dir: Path, logs_dir: Path) -> bool:
         otp = obtener_otp(timeout_seg=config.OTP_TIMEOUT_SEG, after_ts=send_ts)
 
         print(f"  → Rellenando OTP: {otp}")
-        _random_sleep(0.4, 0.9)
         inputs = page.query_selector_all("[data-testid='autoAdvanceInput']")
         print(f"  → Inputs OTP encontrados: {len(inputs)}")
         for i, digito in enumerate(otp):
             inputs[i].click()
-            page.wait_for_timeout(random.randint(80, 220))
             inputs[i].type(digito)
-            page.wait_for_timeout(random.randint(120, 350))
+            page.wait_for_timeout(50)
 
         print("  → OTP ingresado, esperando redirección...")
         _random_sleep(1.0, 2.0)
@@ -491,14 +477,27 @@ def descargar_log(
         page.click("button[data-testid='download-logs-modal']")
 
     descarga = dl_info.value
-    nombre = descarga.suggested_filename   # nombre original del servidor
-    destino = evidencias_dir / nombre
-    descarga.save_as(str(destino))
-    print(f"  ✓ Descarga guardada: {destino}")
+    nombre = descarga.suggested_filename
+    # Obtener la carpeta Descargas real de Windows (independiente del idioma).
+    # FOLDERID_Downloads GUID: {374DE290-123F-4565-9164-39C4925E467B}
+    _guid = struct.pack("<IHH8s", 0x374DE290, 0x123F, 0x4565,
+                        bytes([0x91, 0x64, 0x39, 0xC4, 0x92, 0x5E, 0x46, 0x7B]))
+    _buf = ctypes.c_wchar_p()
+    ctypes.windll.shell32.SHGetKnownFolderPath(_guid, 0, None, ctypes.byref(_buf))
+    downloads_win = Path(_buf.value) if _buf.value else Path.home() / "Downloads"
+    downloads_win.mkdir(parents=True, exist_ok=True)
+    tmp_path = downloads_win / nombre
+    descarga.save_as(str(tmp_path))
+    print(f"  ✓ Descarga guardada: {tmp_path}")
 
     # Captura post-descarga con la notificación de Chrome visible
     time.sleep(1.5)
     capturar(evidencias_dir, f"05_descarga_completada_{tipo_log}_log", page)
 
-    # Evidencia del archivo en Explorer + propiedades
-    capturar_explorador_archivo(evidencias_dir, destino, f"06_{tipo_log}_log")
+    # Captura de Propiedades mostrando la ruta de Descargas de Windows
+    capturar_propiedades_archivo(evidencias_dir, tmp_path, f"06_{tipo_log}_log")
+
+    # Mover el archivo a la carpeta de resultados
+    destino = evidencias_dir / nombre
+    shutil.move(str(tmp_path), str(destino))
+    print(f"  ✓ Archivo movido a: {destino}")
