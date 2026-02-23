@@ -64,6 +64,60 @@ if ($procs) {
 }
 """
 
+# Abre el diálogo de Propiedades del archivo via Shell.Application COM y luego
+# activa la ventana resultante buscándola por título.
+_PS_OPEN_AND_FOCUS_PROPERTIES = """\
+param([string]$FilePath)
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public class WinApi {
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+    public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+    public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")]
+    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+}
+'@
+
+$shell = New-Object -ComObject Shell.Application
+$dir   = [System.IO.Path]::GetDirectoryName($FilePath)
+$name  = [System.IO.Path]::GetFileName($FilePath)
+$folder = $shell.NameSpace($dir)
+if ($folder) {
+    $item = $folder.ParseName($name)
+    if ($item) {
+        $item.InvokeVerb('Properties')
+        Start-Sleep -Milliseconds 2000
+
+        # Buscar ventana de propiedades por título parcial (nombre del archivo)
+        $baseName = [System.IO.Path]::GetFileNameWithoutExtension($name)
+        $found = [IntPtr]::Zero
+        $cb = [WinApi+EnumWindowsProc]{
+            param([IntPtr]$hWnd, [IntPtr]$lParam)
+            $sb = New-Object System.Text.StringBuilder 256
+            [void][WinApi]::GetWindowText($hWnd, $sb, 256)
+            $title = $sb.ToString()
+            if ($title -match [regex]::Escape($name) -or $title -match [regex]::Escape($baseName)) {
+                $script:found = $hWnd
+                return $false
+            }
+            return $true
+        }
+        [WinApi]::EnumWindows($cb, [IntPtr]::Zero) | Out-Null
+        if ($script:found -ne [IntPtr]::Zero) {
+            [WinApi]::ShowWindow($script:found, 9) | Out-Null
+            [WinApi]::SetForegroundWindow($script:found) | Out-Null
+        }
+    }
+}
+"""
+
 
 def _activar_explorador() -> None:
     """Fuerza el foco al Explorador de Windows más reciente via PowerShell."""
@@ -72,6 +126,25 @@ def _activar_explorador() -> None:
             ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", _PS_ACTIVATE_EXPLORER],
             capture_output=True,
             timeout=5,
+        )
+    except Exception:
+        pass
+
+
+def _abrir_y_enfocar_propiedades(archivo: Path) -> None:
+    """
+    Abre el diálogo de Propiedades de Windows del archivo usando Shell.Application
+    COM (más confiable que Alt+Enter) y luego activa la ventana resultante.
+    """
+    try:
+        subprocess.run(
+            [
+                "powershell", "-NoProfile", "-WindowStyle", "Hidden",
+                "-Command", _PS_OPEN_AND_FOCUS_PROPERTIES,
+                "-FilePath", str(archivo),
+            ],
+            capture_output=True,
+            timeout=10,
         )
     except Exception:
         pass
@@ -97,9 +170,9 @@ def capturar_explorador_archivo(output_dir: Path, archivo: Path, nombre_base: st
     _time.sleep(0.8)
     capturar(output_dir, f"{nombre_base}_carpeta_descargas")
 
-    # 2. Abrir Propiedades con Explorer ya en foco (Alt+Enter sobre el archivo seleccionado)
-    pyautogui.hotkey("alt", "return")
-    _time.sleep(2.0)
+    # 2. Abrir Propiedades via Shell.Application COM y activar la ventana resultante
+    _abrir_y_enfocar_propiedades(archivo)
+    _time.sleep(0.5)
     capturar(output_dir, f"{nombre_base}_propiedades_archivo")
 
     # Cerrar Propiedades y luego Explorer

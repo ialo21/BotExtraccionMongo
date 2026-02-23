@@ -14,7 +14,7 @@ import random
 import config
 from src import browser
 from src.anticaptcha import resolver_recaptcha
-from src.evidence import capturar, capturar_explorador_archivo
+from src.evidence import capturar
 from src.gmail_otp import obtener_otp
 
 
@@ -227,7 +227,6 @@ def _hacer_login(page: Page, evidencias_dir: Path, logs_dir: Path) -> bool:
             inputs[i].type(digito)
             page.wait_for_timeout(random.randint(120, 350))
 
-        capturar(evidencias_dir, "01b_mfa_completado", page)
         print("  → OTP ingresado, esperando redirección...")
         _random_sleep(1.0, 2.0)
 
@@ -338,19 +337,16 @@ def ir_al_cluster(page: Page, evidencias_dir: Path) -> None:
     page.click("[data-testid='lg-cloud_nav-top_nav-resource_nav-segment-button']")
     page.click("a[aria-label='Interseguro']")
     page.wait_for_load_state("domcontentloaded")
-    capturar(evidencias_dir, "02a_org_interseguro", page)
     print("  ✓ Organización Interseguro seleccionada")
 
     print("  → Entrando al proyecto PortalSistemas...")
     page.click("a[href*='66ba761f5acbaa376da8f5b3']")
     page.wait_for_load_state("domcontentloaded")
-    capturar(evidencias_dir, "02b_proyecto_portalsistemas", page)
     print("  ✓ Proyecto PortalSistemas abierto")
 
     print("  → Navegando a Clusters...")
     page.click("[data-testid='lg-cloud_nav-side_nav-clusters']")
     page.wait_for_load_state("domcontentloaded")
-    capturar(evidencias_dir, "02c_clusters", page)
     print("  ✓ Sección Clusters abierta")
 
     print("  → Localizando cluster vis-data-prd...")
@@ -360,13 +356,11 @@ def ir_al_cluster(page: Page, evidencias_dir: Path) -> None:
     ).first
     dropdown_btn = cluster_row.locator("[data-testid='Dropdown_toggleButton']").first
     dropdown_btn.click()
-    capturar(evidencias_dir, "02d_menu_cluster", page)
     print("  ✓ Menú del cluster abierto")
 
     print("  → Haciendo clic en Download Logs...")
     page.click("a.dropdown-component-link:has-text('Download Logs')")
     page.wait_for_load_state("domcontentloaded")
-    capturar(evidencias_dir, "02e_download_logs", page)
     print("  ✓ Sección Download Logs abierta")
 
 
@@ -485,8 +479,6 @@ def descargar_log(
     _set_date_input(page, "input[name='endDate']", end_str)
     _set_time_input(page, ".js-end-time-container", "11:30pm")
 
-    capturar(evidencias_dir, f"04_filtro_{tipo_log}_log", page)
-
     # 4. Descargar
     print("  → Haciendo clic en Download Logs...")
     with page.expect_download() as dl_info:
@@ -497,9 +489,3 @@ def descargar_log(
     destino = evidencias_dir / nombre
     descarga.save_as(str(destino))
     print(f"  ✓ Descarga guardada: {destino}")
-
-    # Captura post-descarga: el archivo ya está guardado y Chrome muestra la notificación
-    time.sleep(1.5)
-    capturar(evidencias_dir, f"05_descarga_completada_{tipo_log}_log", page)
-
-    capturar_explorador_archivo(evidencias_dir, destino, f"06_{tipo_log}_log")

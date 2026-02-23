@@ -15,6 +15,7 @@ from pathlib import Path
 import config
 from src import browser
 from src.dates import get_date_range, format_range_label
+from src.evidence import capturar
 import src.mongo_atlas as atlas
 
 
@@ -112,6 +113,10 @@ def main():
         print("\n[ERROR] Se produjo un error inesperado:")
         traceback.print_exc()
         if page:
+            try:
+                capturar(logs_dir, "error_inesperado", page)
+            except Exception:
+                pass
             browser.close()
         sys.exit(1)
 
