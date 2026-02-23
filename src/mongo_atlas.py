@@ -7,6 +7,7 @@ de evidencia al finalizar. Se irán implementando en conjunto con el equipo.
 from playwright.sync_api import Page
 from datetime import date
 from pathlib import Path
+import json
 import time
 import random
 
@@ -98,43 +99,55 @@ def _hacer_login(page: Page, evidencias_dir: Path, logs_dir: Path) -> bool:
         site_key=config.RECAPTCHA_SITE_KEY,
         action="login",
     )
-    print("  → Token obtenido, inyectando en el formulario...")
-    page.evaluate(
-        """(token) => {
-            // Sobreescribir grecaptcha.enterprise.execute para que devuelva nuestro
-            // token en lugar del que generaría con puntuación de bot al hacer submit
-            if (window.grecaptcha) {
-                if (window.grecaptcha.enterprise) {
-                    window.grecaptcha.enterprise.execute = () => Promise.resolve(token);
-                    window.grecaptcha.enterprise.ready = (cb) => { cb(); };
-                }
-                window.grecaptcha.execute = () => Promise.resolve(token);
-                window.grecaptcha.ready = (cb) => { cb(); };
-            }
-            // Inyectar en los campos del DOM que MongoDB lee al enviar el formulario
-            document.querySelectorAll('[name="g-recaptcha-response"]').forEach(
-                el => { el.value = token; }
-            );
-            const tokenInput = document.querySelector('#recaptcha-token');
-            if (tokenInput) { tokenInput.value = token; }
-        }""",
-        captcha_token,
-    )
-    _random_sleep(0.2, 0.4)
+    print("  → Token obtenido, configurando intercepción de requests...")
 
-    # Paso 4: Click en Login — UN solo click natural, luego espera que el botón desaparezca
+    # Interceptar la request de login a nivel HTTP y reemplazar el token de captcha
+    # directamente en el body JSON. Esto es más fiable que manipular el DOM porque
+    # MongoDB Atlas (React) lee el token de su estado interno, no del DOM.
+    def _swap_captcha_token(route):
+        request = route.request
+        if request.method != "POST" or not request.post_data:
+            route.continue_()
+            return
+        print(f"  → [interceptor] POST detectado: {request.url[:100]}")
+        try:
+            body = json.loads(request.post_data)
+            modified = False
+            for key in list(body.keys()):
+                val = body[key]
+                if isinstance(val, str) and len(val) > 100:
+                    if any(t in key.lower() for t in ("captcha", "recaptcha")):
+                        body[key] = captcha_token
+                        modified = True
+                        print(f"  → [interceptor] Token reemplazado en campo '{key}'")
+            if not modified:
+                print(f"  → [interceptor] Campos: {list(body.keys())}")
+            if modified:
+                route.continue_(post_data=json.dumps(body))
+                return
+        except (json.JSONDecodeError, TypeError):
+            pass
+        route.continue_()
+
+    page.route("https://account.mongodb.com/**", _swap_captcha_token)
+
+    # Paso 4: Click en Login
     print("  → Haciendo clic en Login...")
     login_btn = page.locator("button:has-text('Login')")
     login_btn.wait_for(state="visible")
     _human_click(page, login_btn)
 
     try:
-        # 15s es suficiente: si el submit fue aceptado el botón desaparece rápido;
-        # si hay Internal Server Error el botón nunca desaparece y no vale la pena esperar más.
         login_btn.wait_for(state="hidden", timeout=15_000)
         print("  → Formulario procesado")
     except Exception:
         print("  → Botón Login aún visible, continuando de todas formas...")
+
+    # Limpiar interceptor para no afectar navegación posterior
+    try:
+        page.unroute("https://account.mongodb.com/**", _swap_captcha_token)
+    except Exception:
+        pass
 
     _random_sleep(0.4, 0.8)
 
