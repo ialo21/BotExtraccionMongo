@@ -34,7 +34,8 @@ DOWNLOAD_DIR: Path = _resolve(_resultados_dir or os.getenv("DOWNLOAD_DIR"), "out
 OUTPUT_DIR: Path = _resolve(_resultados_dir or os.getenv("OUTPUT_DIR"), "output/evidencias")
 
 # ── Configuración del cluster ─────────────────────────────────────────────────
-CLUSTER_NAME: str = os.getenv("CLUSTER_NAME", "")
+CLUSTER_NAME: str = "vis-data-prd"
+LOG_SERVER: str = "vis-data-prd-shard-00-02.ofu2u.mongodb.net"
 
 # ── Navegador ─────────────────────────────────────────────────────────────
 PAGE_TIMEOUT: int = int(os.getenv("PAGE_TIMEOUT", "60")) * 1000  # Playwright usa ms
@@ -82,8 +83,6 @@ def validate():
         missing.append("MONGO_USER")
     if not MONGO_PASSWORD:
         missing.append("MONGO_PASSWORD")
-    if not CLUSTER_NAME:
-        missing.append("CLUSTER_NAME")
     if not USE_GOOGLE_LOGIN and not ANTICAPTCHA_API_KEY:
         missing.append("ANTICAPTCHA_API_KEY")
 

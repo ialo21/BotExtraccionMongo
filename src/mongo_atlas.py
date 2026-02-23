@@ -453,11 +453,15 @@ def descargar_log(
     print(f"  → Seleccionando proceso: {process_value}...")
     page.select_option("select[name='processes']", value=process_value)
 
-    # 2. Seleccionar Custom Time en Time Period
+    # 2. Seleccionar servidor
+    print(f"  → Seleccionando servidor: {config.LOG_SERVER}...")
+    page.select_option("select[name='hostnames']", value=config.LOG_SERVER)
+
+    # 3. Seleccionar Custom Time en Time Period
     print("  → Seleccionando Custom Time...")
     page.select_option("select[name='timePeriods']", value="Custom Time")
 
-    # 3. Fechas: formato "Sun Feb 01 2026"
+    # 4. Fechas: formato "Sun Feb 01 2026"
     start_str = start.strftime(_DATE_FMT)
     end_str   = end.strftime(_DATE_FMT)
 
@@ -471,7 +475,7 @@ def descargar_log(
 
     capturar(evidencias_dir, f"04_filtro_{tipo_log}_log", page)
 
-    # 4. Descargar
+    # 5. Descargar
     print("  → Haciendo clic en Download Logs...")
     with page.expect_download() as dl_info:
         page.click("button[data-testid='download-logs-modal']")
