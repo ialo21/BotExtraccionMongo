@@ -76,6 +76,7 @@ def main():
 
     # ── Validar configuración ──────────────────────────────────────────────────
     config.validate()
+    print(f"  [config] HEADLESS={config.HEADLESS} (env raw: {os.getenv('HEADLESS', 'NO_SET')})")
 
     start, end = get_date_range()
     print(f"\nRango de extracción: {start} → {end}")
