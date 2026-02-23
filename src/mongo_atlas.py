@@ -234,10 +234,14 @@ def login(page: Page, evidencias_dir: Path, logs_dir: Path, max_reintentos: int 
     print("[1/N] Accediendo a MongoDB Atlas...")
 
     for intento in range(1, max_reintentos + 1):
-        if intento > 1:
-            # Reutilizar el mismo navegador: ya tiene las cookies de account.mongodb.com
-            # del intento anterior, lo que evita el Internal Server Error en sesiones frías.
+        if intento == 2:
+            # Primer reintento: mismo navegador (conserva cookies de account.mongodb.com)
             print(f"  → Reintento {intento}/{max_reintentos} (mismo navegador, cookies preservadas)...")
+        elif intento > 2:
+            # Reintentos posteriores: navegador nuevo para limpiar estado contaminado
+            print(f"  → Reintento {intento}/{max_reintentos} con navegador nuevo...")
+            browser.close()
+            page = browser.launch()
 
         if config.USE_GOOGLE_LOGIN:
             exito = _hacer_login_google(page, evidencias_dir, logs_dir)
