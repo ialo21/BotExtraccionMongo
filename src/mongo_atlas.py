@@ -226,6 +226,16 @@ def _hacer_login(page: Page, evidencias_dir: Path, logs_dir: Path) -> bool:
         print("  → OTP ingresado, esperando redirección...")
         _random_sleep(1.0, 2.0)
 
+    # Paso 5b: Descartar popup "Set up another MFA method" si aparece
+    try:
+        remind_btn = page.locator("button[name='snooze']")
+        remind_btn.wait_for(state="visible", timeout=5_000)
+        print("  → Pantalla 'Set up another MFA method' detectada. Haciendo clic en 'Remind me later'...")
+        _human_click(page, remind_btn)
+        _random_sleep(0.5, 1.0)
+    except Exception:
+        pass
+
     # Paso 6: Validar login buscando el botón de organización en el nav
     print("  → Validando login exitoso...")
     try:
