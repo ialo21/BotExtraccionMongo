@@ -5,7 +5,7 @@ Cada función representa un paso discreto del proceso y toma una captura
 de evidencia al finalizar. Se irán implementando en conjunto con el equipo.
 """
 from playwright.sync_api import Page
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 import ctypes
 import struct
@@ -440,7 +440,7 @@ def descargar_log(
     tipo_log: str,
     start: date,
     end: date,
-) -> None:
+) -> list[Path]:
     """
     En el modal Download Logs:
     1. Selecciona el proceso (audit o general)
@@ -452,6 +452,9 @@ def descargar_log(
         tipo_log: "audit" o "general"
         start:    Fecha de inicio del rango.
         end:      Fecha de fin del rango.
+    
+    Returns:
+        Lista de Paths de las capturas generadas (para usar en IPE).
     """
     process_value = _PROCESS_VALUE.get(tipo_log)
     if process_value is None:
@@ -483,7 +486,7 @@ def descargar_log(
     _set_date_input(page, "input[name='endDate']", end_str)
     _set_time_input(page, ".js-end-time-container", "11:30pm")
 
-    capturar(evidencias_dir, f"04_filtro_{tipo_log}_log", page)
+    cap1 = capturar(evidencias_dir, f"04_filtro_{tipo_log}_log", page)
 
     # 5. Descargar
     print("  → Haciendo clic en Download Logs...")
@@ -506,12 +509,19 @@ def descargar_log(
 
     # Captura post-descarga con la notificación de Chrome visible
     time.sleep(1.5)
-    capturar(evidencias_dir, f"05_descarga_completada_{tipo_log}_log", page)
+    cap2 = capturar(evidencias_dir, f"05_descarga_completada_{tipo_log}_log", page)
 
     # Captura de Propiedades mostrando la ruta de Descargas de Windows
     capturar_propiedades_archivo(evidencias_dir, tmp_path, f"06_{tipo_log}_log")
+    cap3 = evidencias_dir / f"{tmp_path.stem.split('_')[0]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_06_{tipo_log}_log_propiedades_archivo.png"
+    if not cap3.exists():
+        # Buscar el archivo más reciente que coincida con el patrón
+        capturas_props = sorted(evidencias_dir.glob(f"*_06_{tipo_log}_log_propiedades_archivo.png"))
+        cap3 = capturas_props[-1] if capturas_props else cap2
 
     # Mover el archivo a la carpeta de resultados
     destino = evidencias_dir / nombre
     shutil.move(str(tmp_path), str(destino))
     print(f"  ✓ Archivo movido a: {destino}")
+    
+    return [cap1, cap2, cap3]

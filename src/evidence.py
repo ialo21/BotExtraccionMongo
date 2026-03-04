@@ -44,11 +44,11 @@ def capturar(output_dir: Path, nombre: str, page=None) -> Path:
         pass
 
     try:
-        # Mover el cursor al borde izquierdo a media altura: zona sin UI relevante
-        # (evita la barra de tareas que activa miniaturas y la esquina superior
-        # derecha donde aparece la notificación de descarga de Chrome).
+        # Mover el cursor al borde derecho a media altura: zona sin UI relevante
+        # (evita la barra de tareas que activa miniaturas y otras notificaciones).
+        w = _user32.GetSystemMetrics(0)
         h = _user32.GetSystemMetrics(1)
-        pyautogui.moveTo(0, h // 2, duration=0)
+        pyautogui.moveTo(w - 1, h // 2, duration=0)
     except Exception:
         pass
 

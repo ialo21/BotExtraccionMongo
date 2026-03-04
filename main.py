@@ -17,6 +17,8 @@ from src import browser
 from src.dates import get_date_range, format_range_label
 from src.evidence import capturar
 import src.mongo_atlas as atlas
+from src.ipe import generar_ipe
+from src.drive import subir_resultados_a_drive, subir_archivo_a_drive
 
 
 def main():
@@ -97,10 +99,109 @@ def main():
         # ── Paso 3: Ir a la sección de logs ───────────────────────────────────
         atlas.ir_a_logs(page, logs_dir)
 
-        # ── Paso 4: Descargar Audit Log → resultados/ ─────────────────────────
-        atlas.descargar_log(page, resultados_dir, tipo_log="audit", start=start, end=end)
+        # ── Paso 4: Descargar mongod-audit-log ────────────────────────────────
+        carpeta_audit = resultados_dir / "mongod-audit-log"
+        carpeta_audit.mkdir(parents=True, exist_ok=True)
+        capturas_audit = atlas.descargar_log(page, carpeta_audit, tipo_log="audit", start=start, end=end)
+
+        # Preparar datos comunes para IPEs
+        import os
+        rango_label = f"{start.strftime('%d%m')}-{end.strftime('%d%m')}"
+        plantilla = _PROJECT_ROOT / "assets" / "CDBD_IPE_MongoAtlas_.xlsx"
+
+        # ── Paso 6: Descargar mongod ──────────────────────────────────────────
+        carpeta_general = resultados_dir / "mongod"
+        carpeta_general.mkdir(parents=True, exist_ok=True)
+        capturas_general = atlas.descargar_log(page, carpeta_general, tipo_log="general", start=start, end=end)
 
         browser.close()
+        
+        # ── Paso 5: Subir resultados a Google Drive ──────────────────────────────
+        drive_urls = subir_resultados_a_drive(resultados_dir, run_ts, start, end) or {}
+        
+        # ── Paso 6: Generar IPE para mongod-audit-log ─────────────────────────
+        print("\n[6/N] Generando IPE para mongod-audit-log...")
+        
+        if plantilla.exists():
+            datos_ipe_audit = {
+                "I3": datetime.now().strftime("%d/%m/%Y"),
+                "F4": os.getlogin(),
+                "F5": f"El objetivo principal de la extracción es identificar los cambios realizados en la información de las bases de datos durante el periodo {start.strftime('%d/%m/%Y')} - {end.strftime('%d/%m/%Y')}.",
+                "C11": "x",
+                "C17": "x",
+            }
+            salida_ipe_audit = carpeta_audit / f"CDBD_IPE_MongoAtlas_mongod-audit-log_{rango_label}.xlsx"
+            
+            try:
+                generar_ipe(
+                    plantilla_path=plantilla,
+                    salida_path=salida_ipe_audit,
+                    datos=datos_ipe_audit,
+                    imagenes=capturas_audit,
+                    hoja="Hoja 1",
+                    fila_base_img=26,
+                    col_img="D",
+                    espaciado_filas=36,
+                    drive_url=(drive_urls.get("mongod-audit-log") or {}).get("url"),
+                )
+            except Exception as e:
+                print(f"  [aviso] No se pudo generar IPE para mongod-audit-log: {e}")
+            else:
+                try:
+                    carpeta_audit_id = (drive_urls.get("mongod-audit-log") or {}).get("id")
+                    if carpeta_audit_id:
+                        subir_archivo_a_drive(salida_ipe_audit, carpeta_audit_id)
+                        print("  ✓ IPE mongod-audit-log subida a Drive")
+                except Exception as e:
+                    print(f"  [aviso] No se pudo subir IPE mongod-audit-log a Drive: {e}")
+        else:
+            print(f"  [aviso] Plantilla IPE no encontrada en: {plantilla}")
+        
+        # ── Paso 7: Generar IPE para mongod ───────────────────────────────────
+        print("\n[7/N] Generando IPE para mongod...")
+        
+        if plantilla.exists():
+            datos_ipe_general = {
+                "I3": datetime.now().strftime("%d/%m/%Y"),
+                "F4": os.getlogin(),
+                "F5": f"El objetivo principal de la extracción es identificar los cambios realizados en la información de las bases de datos durante el periodo {start.strftime('%d/%m/%Y')} - {end.strftime('%d/%m/%Y')}.",
+                "C11": "x",
+                "C17": "x",
+            }
+            salida_ipe_general = carpeta_general / f"CDBD_IPE_MongoAtlas_mongod_{rango_label}.xlsx"
+            
+            try:
+                generar_ipe(
+                    plantilla_path=plantilla,
+                    salida_path=salida_ipe_general,
+                    datos=datos_ipe_general,
+                    imagenes=capturas_general,
+                    hoja="Hoja 1",
+                    fila_base_img=26,
+                    col_img="D",
+                    espaciado_filas=36,
+                    drive_url=(drive_urls.get("mongod") or {}).get("url"),
+                )
+            except Exception as e:
+                print(f"  [aviso] No se pudo generar IPE para mongod: {e}")
+            else:
+                try:
+                    carpeta_mongod_id = (drive_urls.get("mongod") or {}).get("id")
+                    if carpeta_mongod_id:
+                        subir_archivo_a_drive(salida_ipe_general, carpeta_mongod_id)
+                        print("  ✓ IPE mongod subida a Drive")
+                except Exception as e:
+                    print(f"  [aviso] No se pudo subir IPE mongod a Drive: {e}")
+        
+        # ── Paso 8: Guardar URL de Drive para el orquestador ─────────────────────
+        if drive_urls and drive_urls.get("execution_folder"):
+            drive_url_file = resultados_dir / "drive_url.txt"
+            try:
+                drive_url_file.write_text(drive_urls["execution_folder"]["url"], encoding="utf-8")
+                print(f"  ✓ URL de Drive guardada en: {drive_url_file.name}")
+            except Exception as e:
+                print(f"  [aviso] No se pudo guardar drive_url.txt: {e}")
+        
         print("\n✓ Proceso completado.")
 
     except NotImplementedError as e:

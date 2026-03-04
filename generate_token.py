@@ -1,10 +1,11 @@
 """
-Script one-shot para generar token.json con acceso Gmail (solo correr una vez).
+Script one-shot para generar token.json con acceso Gmail y Drive (solo correr una vez).
 
 Uso:
     python generate_token.py
 
-Abrirá el navegador para autorizar la cuenta de Gmail que recibe el OTP.
+Abrirá el navegador para autorizar la cuenta de Gmail que recibe el OTP
+y para subir archivos a Google Drive.
 El token resultante se guarda en la ruta configurada en GMAIL_TOKEN_PATH (.env).
 """
 from pathlib import Path
@@ -14,7 +15,10 @@ import os
 
 load_dotenv()
 
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/drive"  # acceso completo para listar/reutilizar carpetas
+]
 CREDS_PATH = Path(os.getenv("GMAIL_CREDS_PATH", "AuthParaScriptingIago.json"))
 TOKEN_PATH = Path(os.getenv("GMAIL_TOKEN_PATH", "token.json"))
 

@@ -60,6 +60,11 @@ GMAIL_CREDS_PATH: Path = Path(os.getenv("GMAIL_CREDS_PATH", "AuthParaScriptingIa
 GMAIL_TOKEN_PATH: Path = Path(os.getenv("GMAIL_TOKEN_PATH", "token.json"))
 OTP_TIMEOUT_SEG: int = int(os.getenv("OTP_TIMEOUT_SEG", "60"))
 
+# ── Google Drive ──────────────────────────────────────────────────────────────
+# ID de la carpeta padre en Drive donde se subirán los resultados
+# Estructura: [PADRE]/[AÑO]/[TRIMESTRE]/MONGODB/[FECHA_EJECUCION]/
+DRIVE_PARENT_FOLDER_ID: str = os.getenv("DRIVE_PARENT_FOLDER_ID", "1CKY8Wq8hKtcgifHb26krW9ajctX4j-HR")
+
 if GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET:
     _creds = {
         "installed": {
